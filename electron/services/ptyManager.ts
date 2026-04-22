@@ -1,4 +1,6 @@
+import fs from 'node:fs'
 import os from 'node:os'
+import path from 'node:path'
 import type { CreateTerminalRequest, TerminalExitEvent, TerminalOutputEvent, TerminalSessionInfo } from '../../shared/types'
 
 export interface Disposable {
@@ -37,20 +39,108 @@ interface PtyManagerOptions {
   backend: PtyBackend
   defaultShell?: string
   env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+}
+
+function getEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
+  const direct = env[key]
+  if (direct) {
+    return direct
+  }
+
+  const lowerKey = key.toLowerCase()
+  const matchedKey = Object.keys(env).find((entry) => entry.toLowerCase() === lowerKey)
+  return matchedKey ? env[matchedKey] : undefined
+}
+
+function pickFirstShellCandidate(candidates: Array<string | undefined>): string | undefined {
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue
+    }
+
+    const looksLikePath = candidate.includes('\\') || candidate.includes('/')
+    if (!looksLikePath || fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+
+  return undefined
+}
+
+export function resolveWindowsFallbackShell(env: NodeJS.ProcessEnv): string {
+  return pickFirstShellCandidate([getEnvValue(env, 'COMSPEC'), 'cmd.exe']) ?? 'cmd.exe'
+}
+
+export function resolveWindowsShell(env: NodeJS.ProcessEnv): string {
+  const systemRoot = getEnvValue(env, 'SystemRoot') ?? 'C:\\Windows'
+  const programFiles = getEnvValue(env, 'ProgramW6432') ?? getEnvValue(env, 'ProgramFiles') ?? 'C:\\Program Files'
+
+  return pickFirstShellCandidate([
+    path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
+    path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+    resolveWindowsFallbackShell(env),
+  ]) ?? 'cmd.exe'
+}
+
+export function resolveDefaultShell(env: NodeJS.ProcessEnv, platform = process.platform): string {
+  if (platform === 'win32') {
+    return resolveWindowsShell(env)
+  }
+
+  return getEnvValue(env, 'SHELL') ?? '/bin/bash'
+}
+
+function getShellCommandName(shell: string, platform = process.platform): string {
+  const basename = platform === 'win32' ? path.win32.basename(shell) : path.posix.basename(shell)
+  return basename.toLowerCase()
+}
+
+export function resolveShellArgs(shell: string, platform = process.platform): string[] {
+  if (platform !== 'win32') {
+    return []
+  }
+
+  const command = getShellCommandName(shell, platform)
+  if (command === 'pwsh.exe' || command === 'pwsh' || command === 'powershell.exe' || command === 'powershell') {
+    return ['-NoLogo']
+  }
+
+  if (command === 'cmd.exe' || command === 'cmd') {
+    return ['/Q']
+  }
+
+  return []
+}
+
+export function buildTerminalEnvironment(
+  env: NodeJS.ProcessEnv,
+  platform = process.platform,
+): NodeJS.ProcessEnv {
+  if (platform === 'win32') {
+    return { ...env }
+  }
+
+  return {
+    ...env,
+    TERM: getEnvValue(env, 'TERM') ?? 'xterm-256color',
+  }
 }
 
 export class PtyManager {
   private readonly sessions = new Map<string, SessionRecord>()
   private readonly outputListeners = new Set<(event: TerminalOutputEvent) => void>()
   private readonly exitListeners = new Set<(event: TerminalExitEvent) => void>()
+  private readonly backend: PtyBackend
   private readonly defaultShell: string
   private readonly env: NodeJS.ProcessEnv
-  private readonly options: PtyManagerOptions
+  private readonly platform: NodeJS.Platform
 
   constructor(options: PtyManagerOptions) {
-    this.options = options
-    this.defaultShell = options.defaultShell ?? process.env.SHELL ?? '/bin/bash'
+    this.backend = options.backend
     this.env = options.env ?? process.env
+    this.platform = options.platform ?? process.platform
+    this.defaultShell = options.defaultShell ?? resolveDefaultShell(this.env, this.platform)
   }
 
   onOutput(listener: (event: TerminalOutputEvent) => void): () => void {
@@ -66,21 +156,42 @@ export class PtyManager {
   createSession(request: CreateTerminalRequest): TerminalSessionInfo {
     const sessionId = crypto.randomUUID()
     const cwd = request.cwd ?? process.cwd()
-    const handle = this.options.backend.spawn(this.defaultShell, [], {
-      name: 'xterm-256color',
-      cols: request.cols ?? 80,
-      rows: request.rows ?? 24,
-      cwd,
-      env: {
-        ...this.env,
-        TERM: 'xterm-256color',
-      },
-    })
+    const env = buildTerminalEnvironment(this.env, this.platform)
+    let shell = this.defaultShell
+    let handle: PtyHandle
+
+    try {
+      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), {
+        name: 'xterm-256color',
+        cols: request.cols ?? 80,
+        rows: request.rows ?? 24,
+        cwd,
+        env,
+      })
+    } catch (error) {
+      if (this.platform !== 'win32') {
+        throw error
+      }
+
+      const fallbackShell = resolveWindowsFallbackShell(this.env)
+      if (fallbackShell === shell) {
+        throw error
+      }
+
+      shell = fallbackShell
+      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), {
+        name: 'xterm-256color',
+        cols: request.cols ?? 80,
+        rows: request.rows ?? 24,
+        cwd,
+        env,
+      })
+    }
 
     const info: TerminalSessionInfo = {
       sessionId,
       cwd,
-      shell: this.defaultShell,
+      shell,
     }
 
     const disposables = [
@@ -137,7 +248,7 @@ export class PtyManager {
 
 export function createNodePtyBackend(): PtyBackend {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodePty = require('node-pty') as typeof import('node-pty')
+  const nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as typeof import('@homebridge/node-pty-prebuilt-multiarch')
 
   return {
     spawn(file, args, options) {

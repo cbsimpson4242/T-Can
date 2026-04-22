@@ -11,6 +11,7 @@ import {
 
 interface ActiveNode extends TerminalNodeModel {
   sessionId?: string
+  shell?: string
 }
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
@@ -54,7 +55,7 @@ function App() {
       const restoredNodes = await Promise.all(
         state.layout.nodes.map(async (node) => {
           const session = await window.tcan.createTerminal({ cwd: state.workspacePath })
-          return { ...node, sessionId: session.sessionId }
+          return { ...node, sessionId: session.sessionId, shell: session.shell }
         }),
       )
 
@@ -100,7 +101,7 @@ function App() {
     try {
       const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
       const session = await window.tcan.createTerminal({ cwd: workspacePath })
-      setNodes((current) => [...current, { ...node, sessionId: session.sessionId }])
+      setNodes((current) => [...current, { ...node, sessionId: session.sessionId, shell: session.shell }])
     } finally {
       setIsCreatingTerminal(false)
     }
@@ -170,7 +171,7 @@ function App() {
         <div className="sidebar__brand">
           <p className="eyebrow">T-CAN MVP</p>
           <h1>Terminal canvas</h1>
-          <p className="lede">Linux-first Electron workspace with pannable, zoomable terminals.</p>
+          <p className="lede">Electron workspace with pannable, zoomable terminals for Linux and Windows.</p>
         </div>
         <div className="sidebar__actions">
           <button disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
@@ -234,6 +235,7 @@ function App() {
                 }
                 scale={viewport.scale}
                 sessionId={node.sessionId}
+                shell={node.shell}
                 workspacePath={workspacePath}
               />
             ))}

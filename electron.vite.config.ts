@@ -15,7 +15,7 @@ export default defineConfig({
       formats: ['cjs'],
     },
     rollupOptions: {
-      external: (id) => id === 'electron' || id === 'node-pty' || id.startsWith('node:'),
+      external: (id) => id === 'electron' || id === '@homebridge/node-pty-prebuilt-multiarch' || id.startsWith('node:'),
       output: {
         entryFileNames: '[name].cjs',
       },

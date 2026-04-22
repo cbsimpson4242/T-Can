@@ -8,6 +8,7 @@ import { subscribeToTerminalOutput, useTerminalExit } from '../lib/terminalEvent
 interface TerminalNodeProps {
   node: TerminalNodeModel
   sessionId?: string
+  shell?: string
   workspacePath: string | null
   scale: number
   onMove(delta: { x: number; y: number }): void
@@ -15,8 +16,17 @@ interface TerminalNodeProps {
   onClose(): void
 }
 
+function getShellLabel(shell?: string): string | null {
+  if (!shell) {
+    return null
+  }
+
+  const label = shell.split(/[/\\]/).pop()
+  return label && label.length > 0 ? label : shell
+}
+
 export function TerminalNode(props: TerminalNodeProps) {
-  const { node, sessionId, workspacePath, scale, onMove, onResize, onClose } = props
+  const { node, sessionId, shell, workspacePath, scale, onMove, onResize, onClose } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -24,6 +34,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   const exitCode = useTerminalExit(sessionId)
 
   const sessionLabel = useMemo(() => workspacePath ?? 'Home shell', [workspacePath])
+  const shellLabel = useMemo(() => getShellLabel(shell), [shell])
 
   useEffect(() => {
     const host = hostRef.current
@@ -139,7 +150,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       <header className="terminal-node__header" onPointerDown={beginDrag}>
         <div>
           <strong>{node.title}</strong>
-          <span>{sessionLabel}</span>
+          <span>{shellLabel ? `${sessionLabel} • ${shellLabel}` : sessionLabel}</span>
         </div>
         <button aria-label={`Close ${node.title}`} className="icon-button" onClick={onClose} type="button">
           ×
