@@ -1,9 +1,11 @@
 import type {
+  ClipboardTextMode,
   CreateTerminalRequest,
   PersistedAppState,
   PersistedLayout,
   TerminalExitEvent,
   TerminalOutputEvent,
+  TerminalPasteEvent,
   TerminalSessionInfo,
 } from './types'
 
@@ -15,6 +17,9 @@ export interface TCanApi {
   writeTerminal(sessionId: string, data: string): Promise<void>
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>
   closeTerminal(sessionId: string): Promise<void>
+  readClipboardText(mode?: ClipboardTextMode): Promise<string>
+  showTerminalContextMenu(sessionId: string): Promise<void>
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void
+  onTerminalPaste(listener: (event: TerminalPasteEvent) => void): () => void
 }

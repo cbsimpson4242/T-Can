@@ -2,8 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   clampNodeSize,
   clampScale,
+  createCanvasRect,
   createTerminalNode,
+  getNodeCanvasRect,
   getViewportCenterWorldPoint,
+  rectanglesIntersect,
   zoomViewport,
 } from './layout'
 
@@ -54,5 +57,38 @@ describe('layout helpers', () => {
 
   it('enforces minimum node dimensions', () => {
     expect(clampNodeSize({ width: 10, height: 20 })).toEqual({ width: 280, height: 180 })
+  })
+
+  it('creates normalized canvas rectangles', () => {
+    expect(createCanvasRect({ x: 120, y: 90 }, { x: 40, y: 10 })).toEqual({
+      left: 40,
+      top: 10,
+      right: 120,
+      bottom: 90,
+    })
+  })
+
+  it('projects node bounds into canvas coordinates', () => {
+    expect(
+      getNodeCanvasRect(
+        { id: 'node-1', title: 'Terminal', x: 10, y: 20, width: 100, height: 50 },
+        { x: 30, y: 40, scale: 2 },
+      ),
+    ).toEqual({ left: 50, top: 80, right: 250, bottom: 180 })
+  })
+
+  it('detects rectangle intersections including edge contact', () => {
+    expect(
+      rectanglesIntersect(
+        { left: 0, top: 0, right: 100, bottom: 100 },
+        { left: 100, top: 50, right: 150, bottom: 120 },
+      ),
+    ).toBe(true)
+    expect(
+      rectanglesIntersect(
+        { left: 0, top: 0, right: 100, bottom: 100 },
+        { left: 101, top: 50, right: 150, bottom: 120 },
+      ),
+    ).toBe(false)
   })
 })

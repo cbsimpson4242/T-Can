@@ -2,6 +2,7 @@ import { useSyncExternalStore } from 'react'
 
 const outputListeners = new Map<string, Set<(data: string) => void>>()
 const exitListeners = new Map<string, Set<(exitCode: number) => void>>()
+const pasteListeners = new Map<string, Set<(data: string) => void>>()
 const latestExitCodes = new Map<string, number>()
 const exitStoreListeners = new Set<() => void>()
 let subscribed = false
@@ -24,6 +25,10 @@ function ensureSubscriptions() {
     latestExitCodes.set(sessionId, exitCode)
     exitListeners.get(sessionId)?.forEach((listener) => listener(exitCode))
     emitExitStoreChange()
+  })
+
+  window.tcan.onTerminalPaste(({ sessionId, data }) => {
+    pasteListeners.get(sessionId)?.forEach((listener) => listener(data))
   })
 }
 
@@ -51,6 +56,20 @@ export function subscribeToTerminalExit(sessionId: string, listener: (exitCode: 
     listeners.delete(listener)
     if (listeners.size === 0) {
       exitListeners.delete(sessionId)
+    }
+  }
+}
+
+export function subscribeToTerminalPaste(sessionId: string, listener: (data: string) => void): () => void {
+  ensureSubscriptions()
+  const listeners = pasteListeners.get(sessionId) ?? new Set<(data: string) => void>()
+  listeners.add(listener)
+  pasteListeners.set(sessionId, listeners)
+
+  return () => {
+    listeners.delete(listener)
+    if (listeners.size === 0) {
+      pasteListeners.delete(sessionId)
     }
   }
 }

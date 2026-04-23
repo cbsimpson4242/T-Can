@@ -1,5 +1,5 @@
 import path from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
 import { createNodePtyBackend, PtyManager } from './services/ptyManager'
 import { JsonStore } from './services/jsonStore'
@@ -8,6 +8,7 @@ import {
   createTerminalRequestSchema,
   persistedLayoutSchema,
   terminalCloseSchema,
+  terminalContextMenuSchema,
   terminalResizeSchema,
   terminalWriteSchema,
 } from '../shared/ipc'
@@ -116,6 +117,24 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.closeTerminal, async (_event, candidate) => {
     const request = terminalCloseSchema.parse(candidate)
     ptyManager.close(request.sessionId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.showTerminalContextMenu, async (event, candidate) => {
+    const request = terminalContextMenuSchema.parse(candidate)
+    const window = BrowserWindow.fromWebContents(event.sender) ?? undefined
+    const menu = Menu.buildFromTemplate([
+      {
+        label: 'Paste',
+        click: () => {
+          event.sender.send(IPC_CHANNELS.terminalPaste, {
+            sessionId: request.sessionId,
+            data: clipboard.readText(),
+          })
+        },
+      },
+    ])
+
+    menu.popup({ window })
   })
 }
 

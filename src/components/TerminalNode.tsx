@@ -1,9 +1,17 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react'
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react'
 import { FitAddon } from 'xterm-addon-fit'
 import { Terminal } from 'xterm'
 import 'xterm/css/xterm.css'
-import type { TerminalNode as TerminalNodeModel } from '../../shared/types'
-import { subscribeToTerminalOutput, useTerminalExit } from '../lib/terminalEvents'
+import type { ClipboardTextMode, TerminalNode as TerminalNodeModel } from '../../shared/types'
+import { subscribeToTerminalOutput, subscribeToTerminalPaste, useTerminalExit } from '../lib/terminalEvents'
 
 interface TerminalNodeProps {
   node: TerminalNodeModel
@@ -31,10 +39,34 @@ export function TerminalNode(props: TerminalNodeProps) {
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const [isReady, setIsReady] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const exitCode = useTerminalExit(sessionId)
 
   const sessionLabel = useMemo(() => workspacePath ?? 'Home shell', [workspacePath])
   const shellLabel = useMemo(() => getShellLabel(shell), [shell])
+
+  function focusTerminal() {
+    terminalRef.current?.focus()
+  }
+
+  function pasteText(text: string) {
+    if (!text) {
+      return
+    }
+
+    terminalRef.current?.paste(text)
+    focusTerminal()
+  }
+
+  async function pasteFromClipboard(mode: ClipboardTextMode, allowClipboardFallback = false) {
+    let text = await window.tcan.readClipboardText(mode)
+
+    if (!text && allowClipboardFallback && mode !== 'clipboard') {
+      text = await window.tcan.readClipboardText('clipboard')
+    }
+
+    pasteText(text)
+  }
 
   useEffect(() => {
     const host = hostRef.current
@@ -72,25 +104,87 @@ export function TerminalNode(props: TerminalNodeProps) {
     fitAddonRef.current = fitAddon
     setIsReady(true)
 
+    const helperTextarea = host.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+    if (helperTextarea instanceof HTMLTextAreaElement) {
+      helperTextarea.classList.add('terminal-node__helper-textarea')
+      helperTextarea.setAttribute('aria-label', `${node.title} terminal input`)
+      helperTextarea.setAttribute('autocomplete', 'off')
+      helperTextarea.setAttribute('autocorrect', 'off')
+      helperTextarea.setAttribute('autocapitalize', 'off')
+      helperTextarea.spellcheck = false
+    }
+
+    terminal.attachCustomKeyEventHandler((event) => {
+      if (event.type !== 'keydown') {
+        return true
+      }
+
+      const lowerKey = event.key.toLowerCase()
+      const isPasteShortcut = !event.shiftKey && !event.altKey && (event.ctrlKey || event.metaKey) && lowerKey === 'v'
+      const isShiftInsert = event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Insert'
+
+      if (!isPasteShortcut && !isShiftInsert) {
+        return true
+      }
+
+      event.preventDefault()
+      void pasteFromClipboard('clipboard')
+      return false
+    })
+
+    const handleHostPointerDown = () => {
+      focusTerminal()
+    }
+
+    const handlePaste = (event: ClipboardEvent) => {
+      event.preventDefault()
+      event.stopPropagation()
+      pasteText(event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? '')
+    }
+
+    host.addEventListener('pointerdown', handleHostPointerDown)
+    helperTextarea?.addEventListener('paste', handlePaste, true)
+
     void window.tcan.resizeTerminal(sessionId, terminal.cols, terminal.rows)
 
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
       terminal.write(data)
     })
 
+    const pasteCleanup = subscribeToTerminalPaste(sessionId, (data) => {
+      pasteText(data)
+    })
+
     const dataDisposable = terminal.onData((data) => {
       void window.tcan.writeTerminal(sessionId, data)
     })
 
+    const handleFocus = () => {
+      setIsFocused(true)
+    }
+
+    const handleBlur = () => {
+      setIsFocused(false)
+    }
+
+    helperTextarea?.addEventListener('focus', handleFocus)
+    helperTextarea?.addEventListener('blur', handleBlur)
+
     return () => {
       outputCleanup()
+      pasteCleanup()
+      host.removeEventListener('pointerdown', handleHostPointerDown)
+      helperTextarea?.removeEventListener('paste', handlePaste, true)
       dataDisposable.dispose()
+      helperTextarea?.removeEventListener('focus', handleFocus)
+      helperTextarea?.removeEventListener('blur', handleBlur)
       fitAddonRef.current = null
       terminalRef.current = null
       setIsReady(false)
+      setIsFocused(false)
       terminal.dispose()
     }
-  }, [sessionId])
+  }, [node.title, sessionId])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {
@@ -107,6 +201,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       return
     }
 
+    focusTerminal()
     event.preventDefault()
     let previousX = event.clientX
     let previousY = event.clientY
@@ -134,6 +229,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       return
     }
 
+    focusTerminal()
     event.preventDefault()
     event.stopPropagation()
     let previousX = event.clientX
@@ -157,9 +253,39 @@ export function TerminalNode(props: TerminalNodeProps) {
     window.addEventListener('pointerup', stop)
   }
 
+  function handleAuxClick(event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 1) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    focusTerminal()
+    void pasteFromClipboard('selection', true)
+  }
+
+  function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    if (!sessionId) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    focusTerminal()
+    void window.tcan.showTerminalContextMenu(sessionId)
+  }
+
   return (
     <article
-      className="terminal-node"
+      className={isFocused ? 'terminal-node terminal-node--active' : 'terminal-node'}
+      onAuxClick={handleAuxClick}
+      onContextMenu={handleContextMenu}
+      onPointerDown={(event) => {
+        if (event.button === 1) {
+          event.preventDefault()
+          event.stopPropagation()
+        }
+      }}
       style={{
         transform: `translate(${node.x}px, ${node.y}px)`,
         width: node.width,

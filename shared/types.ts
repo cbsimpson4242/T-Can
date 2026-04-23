@@ -35,6 +35,8 @@ export interface CreateTerminalRequest {
   rows?: number
 }
 
+export type ClipboardTextMode = 'clipboard' | 'selection'
+
 export interface TerminalOutputEvent {
   sessionId: string
   data: string
@@ -43,4 +45,9 @@ export interface TerminalOutputEvent {
 export interface TerminalExitEvent {
   sessionId: string
   exitCode: number
+}
+
+export interface TerminalPasteEvent {
+  sessionId: string
+  data: string
 }

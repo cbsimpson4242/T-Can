@@ -1,7 +1,7 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type { TCanApi } from '../shared/api'
 import { IPC_CHANNELS } from '../shared/ipc'
-import type { TerminalExitEvent, TerminalOutputEvent } from '../shared/types'
+import type { ClipboardTextMode, TerminalExitEvent, TerminalOutputEvent, TerminalPasteEvent } from '../shared/types'
 
 const api: TCanApi = {
   getAppState() {
@@ -25,6 +25,19 @@ const api: TCanApi = {
   closeTerminal(sessionId) {
     return ipcRenderer.invoke(IPC_CHANNELS.closeTerminal, { sessionId })
   },
+  readClipboardText(mode: ClipboardTextMode = 'clipboard') {
+    try {
+      return Promise.resolve(clipboard.readText(mode))
+    } catch (error) {
+      if (mode === 'selection') {
+        return Promise.resolve('')
+      }
+      return Promise.reject(error)
+    }
+  },
+  showTerminalContextMenu(sessionId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.showTerminalContextMenu, { sessionId })
+  },
   onTerminalOutput(listener) {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: TerminalOutputEvent) => listener(payload)
     ipcRenderer.on(IPC_CHANNELS.terminalOutput, wrapped)
@@ -34,6 +47,11 @@ const api: TCanApi = {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: TerminalExitEvent) => listener(payload)
     ipcRenderer.on(IPC_CHANNELS.terminalExit, wrapped)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.terminalExit, wrapped)
+  },
+  onTerminalPaste(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: TerminalPasteEvent) => listener(payload)
+    ipcRenderer.on(IPC_CHANNELS.terminalPaste, wrapped)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.terminalPaste, wrapped)
   },
 }
 

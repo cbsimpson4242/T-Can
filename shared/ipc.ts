@@ -46,6 +46,10 @@ export const terminalCloseSchema = z.object({
   sessionId: z.string(),
 })
 
+export const terminalContextMenuSchema = z.object({
+  sessionId: z.string(),
+})
+
 export const IPC_CHANNELS = {
   getAppState: 'app:get-state',
   saveLayout: 'app:save-layout',
@@ -54,6 +58,8 @@ export const IPC_CHANNELS = {
   writeTerminal: 'terminal:write',
   resizeTerminal: 'terminal:resize',
   closeTerminal: 'terminal:close',
+  showTerminalContextMenu: 'terminal:show-context-menu',
   terminalOutput: 'terminal:output',
   terminalExit: 'terminal:exit',
+  terminalPaste: 'terminal:paste',
 } as const

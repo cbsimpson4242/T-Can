@@ -4,8 +4,11 @@ import type { PersistedLayout, TerminalNode as TerminalNodeModel, Viewport } fro
 import { TerminalNode } from './components/TerminalNode'
 import {
   clampNodeSize,
+  createCanvasRect,
   createTerminalNode,
+  getNodeCanvasRect,
   getViewportCenterWorldPoint,
+  rectanglesIntersect,
   zoomViewport,
 } from './lib/layout'
 
@@ -14,7 +17,15 @@ interface ActiveNode extends TerminalNodeModel {
   shell?: string
 }
 
+interface SelectionBox {
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
+const SELECTION_DRAG_THRESHOLD = 4
 
 function getWorkspaceLabel(workspacePath: string | null): string {
   if (!workspacePath) {
@@ -33,15 +44,37 @@ function getApi() {
   return window.tcan
 }
 
+function hasSelectionModifier(event: Pick<PointerEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>): boolean {
+  return event.ctrlKey || event.metaKey || event.shiftKey
+}
+
+function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
+  const nextIds = new Set(currentIds)
+
+  for (const nodeId of nodeIds) {
+    if (nextIds.has(nodeId)) {
+      nextIds.delete(nodeId)
+    } else {
+      nextIds.add(nodeId)
+    }
+  }
+
+  return [...nextIds]
+}
+
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [workspacePath, setWorkspacePath] = useState<string | null>(null)
   const [nodes, setNodes] = useState<ActiveNode[]>([])
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT)
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
+  const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
+
+  const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
 
   const layout = useMemo<PersistedLayout>(
     () => ({
@@ -132,6 +165,7 @@ function App() {
       const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
       const session = await getApi().createTerminal({ cwd: workspacePath })
       setNodes((current) => [...current, { ...node, sessionId: session.sessionId, shell: session.shell }])
+      setSelectedNodeIds([node.id])
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to create a terminal.\n\n${message}`)
@@ -148,17 +182,27 @@ function App() {
       }
       return current.filter((entry) => entry.id !== nodeId)
     })
+    setSelectedNodeIds((current) => current.filter((entry) => entry !== nodeId))
   }
 
-  function updateNode(nodeId: string, updater: (node: ActiveNode) => ActiveNode) {
-    setNodes((current) => current.map((node) => (node.id === nodeId ? updater(node) : node)))
+  function getCanvasPoint(clientX: number, clientY: number) {
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) {
+      return null
+    }
+
+    return {
+      x: clientX - bounds.left,
+      y: clientY - bounds.top,
+    }
+  }
+
+  function getActionNodeIds(nodeId: string): string[] {
+    return selectedNodeIdSet.has(nodeId) ? selectedNodeIds : [nodeId]
   }
 
   function beginCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
-    const isPrimaryCanvasDrag = event.button === 0 && event.target === event.currentTarget
-    const isMiddleMouseDrag = event.button === 1
-
-    if (!isPrimaryCanvasDrag && !isMiddleMouseDrag) {
+    if (event.button !== 1) {
       return
     }
 
@@ -188,6 +232,191 @@ function App() {
     window.addEventListener('pointerup', stop)
     window.addEventListener('pointercancel', stop)
     window.addEventListener('blur', stop)
+  }
+
+  function beginCanvasSelection(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    const target = event.target as HTMLElement | null
+    if (target?.closest('.terminal-node') || target?.closest('.canvas__hud') || target?.closest('button')) {
+      return
+    }
+
+    const startPoint = getCanvasPoint(event.clientX, event.clientY)
+    if (!startPoint) {
+      return
+    }
+
+    event.preventDefault()
+    const modifiedSelection = hasSelectionModifier(event)
+    const initialSelection = selectedNodeIds
+    const initialViewport = viewport
+
+    const move = (pointerEvent: PointerEvent) => {
+      const currentPoint = getCanvasPoint(pointerEvent.clientX, pointerEvent.clientY)
+      if (!currentPoint) {
+        return
+      }
+
+      const rect = createCanvasRect(startPoint, currentPoint)
+      setSelectionBox({
+        x: rect.left,
+        y: rect.top,
+        width: rect.right - rect.left,
+        height: rect.bottom - rect.top,
+      })
+    }
+
+    const stop = (pointerEvent?: PointerEvent) => {
+      const endPoint = pointerEvent ? getCanvasPoint(pointerEvent.clientX, pointerEvent.clientY) ?? startPoint : startPoint
+      const rect = createCanvasRect(startPoint, endPoint)
+      const width = rect.right - rect.left
+      const height = rect.bottom - rect.top
+
+      setSelectionBox(null)
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      window.removeEventListener('blur', stop)
+
+      if (width < SELECTION_DRAG_THRESHOLD && height < SELECTION_DRAG_THRESHOLD) {
+        if (!modifiedSelection) {
+          setSelectedNodeIds([])
+        }
+        return
+      }
+
+      const intersectedNodeIds = nodes
+        .filter((node) => rectanglesIntersect(rect, getNodeCanvasRect(node, initialViewport)))
+        .map((node) => node.id)
+
+      setSelectedNodeIds(modifiedSelection ? toggleSelection(initialSelection, intersectedNodeIds) : intersectedNodeIds)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    window.addEventListener('blur', stop)
+  }
+
+  function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button === 1) {
+      beginCanvasPan(event)
+      return
+    }
+
+    beginCanvasSelection(event)
+  }
+
+  function handleNodeSelect(nodeId: string, event: ReactPointerEvent<HTMLElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    const target = event.target as HTMLElement | null
+    if (!target?.closest('.terminal-node__body')) {
+      return
+    }
+
+    if (hasSelectionModifier(event)) {
+      setSelectedNodeIds((current) => toggleSelection(current, [nodeId]))
+      return
+    }
+
+    setSelectedNodeIds([nodeId])
+  }
+
+  function beginNodeMove(nodeId: string, event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    const actionNodeIds = getActionNodeIds(nodeId)
+    const actionNodeIdSet = new Set(actionNodeIds)
+    setSelectedNodeIds(actionNodeIds)
+
+    let previousX = event.clientX
+    let previousY = event.clientY
+
+    const move = (pointerEvent: PointerEvent) => {
+      const deltaX = (pointerEvent.clientX - previousX) / viewport.scale
+      const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
+
+      setNodes((current) =>
+        current.map((node) =>
+          actionNodeIdSet.has(node.id)
+            ? {
+                ...node,
+                x: node.x + deltaX,
+                y: node.y + deltaY,
+              }
+            : node,
+        ),
+      )
+
+      previousX = pointerEvent.clientX
+      previousY = pointerEvent.clientY
+    }
+
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+  }
+
+  function beginNodeResize(nodeId: string, event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopPropagation()
+    const actionNodeIds = getActionNodeIds(nodeId)
+    const actionNodeIdSet = new Set(actionNodeIds)
+    setSelectedNodeIds(actionNodeIds)
+
+    let previousX = event.clientX
+    let previousY = event.clientY
+
+    const move = (pointerEvent: PointerEvent) => {
+      const deltaWidth = (pointerEvent.clientX - previousX) / viewport.scale
+      const deltaHeight = (pointerEvent.clientY - previousY) / viewport.scale
+
+      setNodes((current) =>
+        current.map((node) =>
+          actionNodeIdSet.has(node.id)
+            ? {
+                ...node,
+                ...clampNodeSize({
+                  width: node.width + deltaWidth,
+                  height: node.height + deltaHeight,
+                }),
+              }
+            : node,
+        ),
+      )
+
+      previousX = pointerEvent.clientX
+      previousY = pointerEvent.clientY
+    }
+
+    const stop = () => {
+      window.removeEventListener('pointermove', move)
+      window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+    }
+
+    window.addEventListener('pointermove', move)
+    window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
   }
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
@@ -260,7 +489,7 @@ function App() {
                 event.preventDefault()
               }
             }}
-            onPointerDown={beginCanvasPan}
+            onPointerDown={handleCanvasPointerDown}
             onWheel={handleWheel}
             ref={canvasRef}
             role="presentation"
@@ -269,6 +498,7 @@ function App() {
               <div className="status-chip status-chip--cyan">WORKSPACE: {getWorkspaceLabel(workspacePath)}</div>
               <div className="status-chip status-chip--green">NODES: {nodes.length}</div>
               <div className="status-chip status-chip--amber">ZOOM: {Math.round(viewport.scale * 100)}%</div>
+              <div className="status-chip">SELECTED: {selectedNodeIds.length}</div>
             </div>
             <div
               className="canvas__world"
@@ -279,29 +509,28 @@ function App() {
                   key={node.id}
                   node={node}
                   onClose={() => void removeNode(node.id)}
-                  onMove={(delta) =>
-                    updateNode(node.id, (current) => ({
-                      ...current,
-                      x: current.x + delta.x,
-                      y: current.y + delta.y,
-                    }))
-                  }
-                  onResize={(delta) =>
-                    updateNode(node.id, (current) => ({
-                      ...current,
-                      ...clampNodeSize({
-                        width: current.width + delta.width,
-                        height: current.height + delta.height,
-                      }),
-                    }))
-                  }
+                  onMoveStart={(event) => beginNodeMove(node.id, event)}
+                  onResizeStart={(event) => beginNodeResize(node.id, event)}
+                  onSelect={(event) => handleNodeSelect(node.id, event)}
                   scale={viewport.scale}
+                  selected={selectedNodeIdSet.has(node.id)}
                   sessionId={node.sessionId}
                   shell={node.shell}
                   workspacePath={workspacePath}
                 />
               ))}
             </div>
+            {selectionBox && (
+              <div
+                aria-hidden="true"
+                className="canvas__selection-box"
+                style={{
+                  transform: `translate(${selectionBox.x}px, ${selectionBox.y}px)`,
+                  width: selectionBox.width,
+                  height: selectionBox.height,
+                }}
+              />
+            )}
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
                 <p className="empty-state__title">NO ACTIVE TERMINALS</p>

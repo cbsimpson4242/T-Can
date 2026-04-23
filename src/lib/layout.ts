@@ -1,5 +1,12 @@
 import type { TerminalNode, Viewport } from '../../shared/types'
 
+export interface CanvasRect {
+  left: number
+  top: number
+  right: number
+  bottom: number
+}
+
 export const DEFAULT_NODE_SIZE = {
   width: 520,
   height: 320,
@@ -59,4 +66,29 @@ export function clampNodeSize(size: { width: number; height: number }) {
     width: Math.max(MIN_NODE_SIZE.width, Math.round(size.width)),
     height: Math.max(MIN_NODE_SIZE.height, Math.round(size.height)),
   }
+}
+
+export function createCanvasRect(start: { x: number; y: number }, end: { x: number; y: number }): CanvasRect {
+  return {
+    left: Math.min(start.x, end.x),
+    top: Math.min(start.y, end.y),
+    right: Math.max(start.x, end.x),
+    bottom: Math.max(start.y, end.y),
+  }
+}
+
+export function getNodeCanvasRect(node: TerminalNode, viewport: Viewport): CanvasRect {
+  const left = viewport.x + node.x * viewport.scale
+  const top = viewport.y + node.y * viewport.scale
+
+  return {
+    left,
+    top,
+    right: left + node.width * viewport.scale,
+    bottom: top + node.height * viewport.scale,
+  }
+}
+
+export function rectanglesIntersect(a: CanvasRect, b: CanvasRect): boolean {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
 }
