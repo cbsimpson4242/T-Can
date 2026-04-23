@@ -27,15 +27,6 @@ interface SelectionBox {
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const SELECTION_DRAG_THRESHOLD = 4
 
-function getWorkspaceLabel(workspacePath: string | null): string {
-  if (!workspacePath) {
-    return 'HOME'
-  }
-
-  const parts = workspacePath.split(/[/\\]/).filter(Boolean)
-  return parts.at(-1)?.toUpperCase() ?? workspacePath.toUpperCase()
-}
-
 function getApi() {
   if (!window.tcan) {
     throw new Error('T-CAN preload API is unavailable. Rebuild the Electron bundles and restart the app.')
@@ -534,13 +525,6 @@ function App() {
               backgroundSize: `${48 * viewport.scale}px ${48 * viewport.scale}px`,
             }}
           >
-            <div className="canvas__hud">
-              <div className="status-chip status-chip--cyan">WORKSPACE: {getWorkspaceLabel(workspacePath)}</div>
-              <div className="status-chip status-chip--green">NODES: {nodes.length}</div>
-              <div className="status-chip status-chip--amber">ZOOM: {Math.round(viewport.scale * 100)}%</div>
-              <div className="status-chip">SELECTED: {selectedNodeIds.length}</div>
-              <div className="status-chip">NAV: MMB TO PAN / HOLD CTRL + WHEEL TO ZOOM</div>
-            </div>
             <div className="canvas__world">
               {nodes.map((node) => {
                 const canvasRect = getNodeCanvasRect(node, viewport)

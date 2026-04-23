@@ -100,7 +100,6 @@ button:disabled {
 .topbar__brand,
 .topbar__tab,
 .command-button,
-.status-chip,
 .statusbar,
 .rail__button,
 .empty-state__title,
@@ -242,42 +241,6 @@ button:disabled {
     linear-gradient(180deg, rgba(0, 0, 0, 0.28), transparent 160px),
     radial-gradient(circle at 50% 42%, transparent 0, rgba(0, 0, 0, 0.34) 72%);
   pointer-events: none;
-}
-
-.canvas__hud {
-  position: absolute;
-  top: 1.25rem;
-  right: 1.25rem;
-  z-index: 2;
-  display: flex;
-  flex-direction: column;
-  gap: 0.45rem;
-  pointer-events: none;
-}
-
-.status-chip {
-  min-width: 220px;
-  padding: 0.46rem 0.68rem;
-  border: 1px solid rgba(116, 139, 135, 0.22);
-  border-left-color: currentColor;
-  background: rgba(8, 11, 13, 0.72);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
-  color: rgba(237, 242, 239, 0.68);
-  font-size: 0.69rem;
-  font-weight: 800;
-  backdrop-filter: blur(12px);
-}
-
-.status-chip--green {
-  color: var(--green);
-}
-
-.status-chip--cyan {
-  color: var(--cyan);
-}
-
-.status-chip--amber {
-  color: var(--amber);
 }
 
 .canvas__world {
@@ -570,15 +533,6 @@ button:disabled {
 
   .rail__indicator {
     display: none;
-  }
-
-  .canvas__hud {
-    left: 1rem;
-    right: 1rem;
-  }
-
-  .status-chip {
-    min-width: 0;
   }
 
   .statusbar {
