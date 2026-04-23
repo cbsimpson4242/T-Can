@@ -529,6 +529,10 @@ function App() {
             onWheel={handleWheel}
             ref={canvasRef}
             role="presentation"
+            style={{
+              backgroundPosition: `${viewport.x}px ${viewport.y}px`,
+              backgroundSize: `${48 * viewport.scale}px ${48 * viewport.scale}px`,
+            }}
           >
             <div className="canvas__hud">
               <div className="status-chip status-chip--cyan">WORKSPACE: {getWorkspaceLabel(workspacePath)}</div>
@@ -537,25 +541,32 @@ function App() {
               <div className="status-chip">SELECTED: {selectedNodeIds.length}</div>
               <div className="status-chip">NAV: MMB TO PAN • HOLD KEYBOARD CTRL + WHEEL TO ZOOM</div>
             </div>
-            <div
-              className="canvas__world"
-              style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
-            >
-              {nodes.map((node) => (
-                <TerminalNode
-                  key={node.id}
-                  node={node}
-                  onClose={() => void removeNode(node.id)}
-                  onMoveStart={(event) => beginNodeMove(node.id, event)}
-                  onResizeStart={(event) => beginNodeResize(node.id, event)}
-                  onSelect={(event) => handleNodeSelect(node.id, event)}
-                  scale={viewport.scale}
-                  selected={selectedNodeIdSet.has(node.id)}
-                  sessionId={node.sessionId}
-                  shell={node.shell}
-                  workspacePath={workspacePath}
-                />
-              ))}
+            <div className="canvas__world">
+              {nodes.map((node) => {
+                const canvasRect = getNodeCanvasRect(node, viewport)
+
+                return (
+                  <TerminalNode
+                    key={node.id}
+                    canvasRect={{
+                      left: canvasRect.left,
+                      top: canvasRect.top,
+                      width: canvasRect.right - canvasRect.left,
+                      height: canvasRect.bottom - canvasRect.top,
+                    }}
+                    node={node}
+                    onClose={() => void removeNode(node.id)}
+                    onMoveStart={(event) => beginNodeMove(node.id, event)}
+                    onResizeStart={(event) => beginNodeResize(node.id, event)}
+                    onSelect={(event) => handleNodeSelect(node.id, event)}
+                    scale={viewport.scale}
+                    selected={selectedNodeIdSet.has(node.id)}
+                    sessionId={node.sessionId}
+                    shell={node.shell}
+                    workspacePath={workspacePath}
+                  />
+                )
+              })}
             </div>
             {selectionBox && (
               <div
