@@ -246,34 +246,95 @@ export class PtyManager {
   }
 }
 
-export function createNodePtyBackend(): PtyBackend {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as typeof import('@homebridge/node-pty-prebuilt-multiarch')
-
+function createUnavailablePtyBackend(reason: string): PtyBackend {
   return {
-    spawn(file, args, options) {
-      const pty = nodePty.spawn(file, args, options)
+    spawn(file, _args, options) {
+      const dataListeners = new Set<(data: string) => void>()
+      const exitListeners = new Set<(exitCode: number) => void>()
+      let closed = false
+
+      queueMicrotask(() => {
+        const message = [
+          '[T-CAN] Terminal backend unavailable.',
+          reason,
+          `shell: ${file}`,
+          `cwd: ${options.cwd}`,
+          'Install Visual Studio with the "Desktop development with C++" workload, then reinstall dependencies.',
+          '',
+        ].join('\r\n')
+
+        for (const listener of dataListeners) {
+          listener(message)
+        }
+      })
+
       return {
         onData(listener) {
-          return pty.onData(listener)
+          dataListeners.add(listener)
+          return {
+            dispose() {
+              dataListeners.delete(listener)
+            },
+          }
         },
         onExit(listener) {
-          return pty.onExit((event) => listener(event.exitCode ?? 0))
+          exitListeners.add(listener)
+          return {
+            dispose() {
+              exitListeners.delete(listener)
+            },
+          }
         },
-        write(data) {
-          pty.write(data)
-        },
-        resize(cols, rows) {
-          pty.resize(cols, rows)
-        },
+        write() {},
+        resize() {},
         kill() {
-          if (os.platform() === 'win32') {
-            pty.kill()
+          if (closed) {
             return
           }
-          pty.kill('SIGTERM')
+          closed = true
+          for (const listener of exitListeners) {
+            listener(0)
+          }
         },
       }
     },
+  }
+}
+
+export function createNodePtyBackend(): PtyBackend {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nodePty = require('@homebridge/node-pty-prebuilt-multiarch') as typeof import('@homebridge/node-pty-prebuilt-multiarch')
+
+    return {
+      spawn(file, args, options) {
+        const pty = nodePty.spawn(file, args, options)
+        return {
+          onData(listener) {
+            return pty.onData(listener)
+          },
+          onExit(listener) {
+            return pty.onExit((event) => listener(event.exitCode ?? 0))
+          },
+          write(data) {
+            pty.write(data)
+          },
+          resize(cols, rows) {
+            pty.resize(cols, rows)
+          },
+          kill() {
+            if (os.platform() === 'win32') {
+              pty.kill()
+              return
+            }
+            pty.kill('SIGTERM')
+          },
+        }
+      },
+    }
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    process.stderr.write(`[T-CAN] Falling back to disabled PTY backend: ${reason}\n`)
+    return createUnavailablePtyBackend(reason)
   }
 }

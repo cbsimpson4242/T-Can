@@ -47,7 +47,14 @@ function createMainWindow(): BrowserWindow {
 
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
   persistedState = nextState
-  store.save(persistedState)
+
+  try {
+    store.save(persistedState)
+  } catch (error) {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error)
+    process.stderr.write(`[T-CAN] Failed to persist app state: ${message}\n`)
+  }
+
   return persistedState
 }
 
@@ -57,8 +64,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.openWorkspace, async () => {
     const dialogOptions: OpenDialogOptions = {
       title: 'Open workspace',
-      properties: ['openDirectory'],
+      defaultPath: persistedState.workspacePath ?? app.getPath('home'),
+      properties: ['openDirectory', 'createDirectory'],
+      buttonLabel: 'Open workspace',
     }
+
     const result = mainWindow
       ? await dialog.showOpenDialog(mainWindow, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)

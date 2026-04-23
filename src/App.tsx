@@ -86,6 +86,9 @@ function App() {
     try {
       const nextWorkspace = await window.tcan.openWorkspace()
       setWorkspacePath(nextWorkspace)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to open a workspace.\n\n${message}`)
     } finally {
       setIsOpeningWorkspace(false)
     }
