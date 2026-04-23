@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Infinite Terminal Canvas</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "on-primary": "#003907",
+                        "surface-container-lowest": "#0e0e0e",
+                        "on-secondary-fixed-variant": "#004f53",
+                        "on-background": "#e5e2e1",
+                        "background": "#131313",
+                        "secondary-fixed-dim": "#00dce6",
+                        "on-surface": "#e5e2e1",
+                        "surface-bright": "#3a3939",
+                        "outline-variant": "#3b4b37",
+                        "tertiary-fixed": "#ffdad2",
+                        "on-error": "#690005",
+                        "on-surface-variant": "#b9ccb2",
+                        "tertiary-container": "#ffd3c8",
+                        "on-primary-container": "#007117",
+                        "primary": "#ebffe2",
+                        "surface-tint": "#00e639",
+                        "surface": "#131313",
+                        "surface-variant": "#353534",
+                        "primary-container": "#00ff41",
+                        "on-tertiary-fixed": "#3c0700",
+                        "surface-container": "#201f1f",
+                        "tertiary": "#fff8f6",
+                        "on-primary-fixed-variant": "#00530e",
+                        "on-primary-fixed": "#002203",
+                        "on-tertiary-container": "#b82a00",
+                        "surface-container-highest": "#353534",
+                        "primary-fixed-dim": "#00e639",
+                        "surface-container-low": "#1c1b1b",
+                        "on-tertiary": "#611200",
+                        "primary-fixed": "#72ff70",
+                        "on-secondary-container": "#006a6f",
+                        "secondary-container": "#00f1fd",
+                        "inverse-primary": "#006e16",
+                        "tertiary-fixed-dim": "#ffb4a2",
+                        "inverse-on-surface": "#313030",
+                        "surface-container-high": "#2a2a2a",
+                        "error": "#ffb4ab",
+                        "on-error-container": "#ffdad6",
+                        "error-container": "#93000a",
+                        "on-secondary": "#00373a",
+                        "surface-dim": "#131313",
+                        "on-secondary-fixed": "#002022",
+                        "inverse-surface": "#e5e2e1",
+                        "secondary": "#dcfdff",
+                        "on-tertiary-fixed-variant": "#891d00",
+                        "outline": "#84967e",
+                        "secondary-fixed": "#6ff6ff"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-lg": "32px",
+                        "unit": "4px",
+                        "stack-sm": "8px",
+                        "container-max": "100%",
+                        "margin": "24px",
+                        "gutter": "16px",
+                        "stack-md": "16px"
+                    },
+                    "fontFamily": {
+                        "headline-lg": ["Space Grotesk"],
+                        "headline-md": ["Space Grotesk"],
+                        "body-lg": ["Space Grotesk"],
+                        "headline-sm": ["Space Grotesk"],
+                        "body-md": ["Space Grotesk"],
+                        "label-mono": ["Space Grotesk"]
+                    },
+                    "fontSize": {
+                        "headline-lg": ["48px", { "lineHeight": "1.1", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "headline-md": ["32px", { "lineHeight": "1.2", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "body-lg": ["16px", { "lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400" }],
+                        "headline-sm": ["20px", { "lineHeight": "1.2", "letterSpacing": "0.02em", "fontWeight": "600" }],
+                        "body-md": ["14px", { "lineHeight": "1.6", "letterSpacing": "0.01em", "fontWeight": "400" }],
+                        "label-mono": ["12px", { "lineHeight": "1.0", "letterSpacing": "0.05em", "fontWeight": "500" }]
+                    },
+                    "backgroundImage": {
+                        "grid-pattern": "linear-gradient(to right, #1E1E1E 1px, transparent 1px), linear-gradient(to bottom, #1E1E1E 1px, transparent 1px)"
+                    }
+                }
+            }
+        }
+    </script>
+<style>
+        .glitch-cursor {
+            animation: blink 1s step-end infinite;
+        }
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0; }
+        }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body-md text-body-md h-screen w-screen overflow-hidden flex flex-col">
+<!-- TopAppBar -->
+<header class="bg-black flex justify-between items-center w-full px-4 h-12 docked full-width top-0 border-b border-[#00FF41] z-50 flex-shrink-0">
+<div class="flex items-center gap-4">
+<span class="text-[#00FF41] font-black tracking-tighter text-lg font-headline-sm text-headline-sm">STITCH_TERMINAL_V1.0</span>
+<nav class="hidden md:flex items-center gap-6 ml-8">
+<a class="text-[#00FF41] border-b border-[#00FF41] pb-1 font-['Space_Grotesk'] uppercase tracking-widest text-xs font-label-mono text-label-mono" href="#">SESSIONS</a>
+<a class="text-gray-500 hover:text-[#00FF41]/70 font-['Space_Grotesk'] uppercase tracking-widest text-xs font-label-mono text-label-mono transition-colors duration-100" href="#">SCRIPTS</a>
+<a class="text-gray-500 hover:text-[#00FF41]/70 font-['Space_Grotesk'] uppercase tracking-widest text-xs font-label-mono text-label-mono transition-colors duration-100" href="#">NETWORK</a>
+</nav>
+</div>
+<div class="flex items-center gap-4 text-[#00FF41]">
+<span class="material-symbols-outlined hover:bg-[#121212] transition-colors duration-100 p-1 cursor-pointer" data-icon="minimize">minimize</span>
+<span class="material-symbols-outlined hover:bg-[#121212] transition-colors duration-100 p-1 cursor-pointer" data-icon="fullscreen">fullscreen</span>
+<span class="material-symbols-outlined hover:bg-[#121212] transition-colors duration-100 p-1 cursor-pointer" data-icon="close">close</span>
+</div>
+</header>
+<div class="flex flex-1 overflow-hidden relative">
+<!-- Infinite Grid Background -->
+<div class="absolute inset-0 bg-grid-pattern bg-[size:40px_40px] opacity-20 pointer-events-none"></div>
+<!-- SideNavBar -->
+<aside class="hidden md:flex bg-[#121212] fixed left-0 top-12 bottom-0 flex-col items-center py-4 w-16 border-r border-[#00FF41]/20 z-40">
+<nav class="flex flex-col items-center gap-8 w-full mt-stack-md">
+<a class="bg-[#1E1E1E] text-[#00FF41] border-l-2 border-[#00FF41] w-full flex justify-center py-2 scale-95" href="#" title="WORK_01">
+<span class="material-symbols-outlined text-2xl" data-icon="terminal">terminal</span>
+</a>
+<a class="text-gray-600 hover:text-[#00FF41] hover:bg-[#1E1E1E] w-full flex justify-center py-2 transition-colors duration-100" href="#" title="WORK_02">
+<span class="material-symbols-outlined text-2xl" data-icon="folder_open">folder_open</span>
+</a>
+<a class="text-gray-600 hover:text-[#00FF41] hover:bg-[#1E1E1E] w-full flex justify-center py-2 transition-colors duration-100" href="#" title="WORK_03">
+<span class="material-symbols-outlined text-2xl" data-icon="receipt_long">receipt_long</span>
+</a>
+<a class="text-gray-600 hover:text-[#00FF41] hover:bg-[#1E1E1E] w-full flex justify-center py-2 transition-colors duration-100" href="#" title="WORK_04">
+<span class="material-symbols-outlined text-2xl" data-icon="settings_input_component">settings_input_component</span>
+</a>
+</nav>
+</aside>
+<!-- Main Canvas Area -->
+<main class="flex-1 ml-0 md:ml-16 relative flex items-center justify-center p-8 overflow-auto">
+<!-- Terminal Window Card -->
+<div class="w-full max-w-5xl bg-surface-container-lowest border border-primary-container shadow-[0_0_15px_rgba(0,255,65,0.1)] flex flex-col relative z-10">
+<!-- Terminal Header Bar -->
+<div class="h-8 border-b border-primary-container/30 bg-surface-container flex items-center px-4 justify-between">
+<div class="flex gap-2">
+<div class="w-2 h-2 rounded-full bg-error-container"></div>
+<div class="w-2 h-2 rounded-full bg-tertiary-container"></div>
+<div class="w-2 h-2 rounded-full bg-primary-container"></div>
+</div>
+<span class="font-label-mono text-label-mono text-primary-container/70 uppercase">tty1 - user@stitch</span>
+<div class="w-8"></div> <!-- Spacer for balance -->
+</div>
+<!-- Terminal Content -->
+<div class="p-6 font-label-mono text-label-mono text-primary-container h-[614px] overflow-y-auto custom-scrollbar flex flex-col gap-2">
+<div>
+<span class="text-secondary-fixed">System initialization...</span> <span class="text-primary">[OK]</span>
+</div>
+<div>
+<span class="text-secondary-fixed">Loading kernel modules...</span> <span class="text-primary">[OK]</span>
+</div>
+<div>
+<span class="text-secondary-fixed">Mounting virtual filesystems...</span> <span class="text-primary">[OK]</span>
+</div>
+<div class="mt-4 opacity-70">
+                        stitch OS v4.2.1-core (x86_64)<br/>
+                        Last login: Tue Oct 24 14:32:01 2024 from 192.168.1.104
+                    </div>
+<div class="mt-stack-sm flex flex-col gap-1">
+<div class="flex items-start">
+<span class="text-secondary-fixed mr-2">user@stitch:~$</span>
+<span class="text-on-background">tail -f /var/log/syslog</span>
+</div>
+<div class="pl-4 opacity-60 text-[10px]">
+                            Oct 24 15:01:22 stitch kernel: [ 453.120] IPv6: ADDRCONF(NETDEV_UP): eth0: link is not ready<br/>
+                            Oct 24 15:01:24 stitch systemd[1]: Started Network Manager Wait Online.<br/>
+                            Oct 24 15:01:24 stitch systemd[1]: Reached target Network is Online.<br/>
+                            Oct 24 15:01:25 stitch dhclient[912]: DHCPDISCOVER on eth0 to 255.255.255.255 port 67 interval 3<br/>
+                            Oct 24 15:01:25 stitch dhclient[912]: DHCPOFFER of 192.168.1.150 from 192.168.1.1<br/>
+                            Oct 24 15:01:25 stitch dhclient[912]: DHCPACK of 192.168.1.150 from 192.168.1.1<br/>
+                            Oct 24 15:01:25 stitch dhclient[912]: bound to 192.168.1.150 -- renewal in 38321 seconds.
+                        </div>
+</div>
+<div class="mt-stack-sm flex flex-col gap-1">
+<div class="flex items-start">
+<span class="text-secondary-fixed mr-2">user@stitch:~$</span>
+<span class="text-on-background">ping 8.8.8.8 -c 3</span>
+</div>
+<div class="pl-4 opacity-60 text-[10px]">
+                            PING 8.8.8.8 (8.8.8.8) 56(84) bytes of data.<br/>
+                            64 bytes from 8.8.8.8: icmp_seq=1 ttl=117 time=12.4 ms<br/>
+                            64 bytes from 8.8.8.8: icmp_seq=2 ttl=117 time=11.8 ms<br/>
+                            64 bytes from 8.8.8.8: icmp_seq=3 ttl=117 time=12.1 ms<br/>
+<br/>
+                            --- 8.8.8.8 ping statistics ---<br/>
+                            3 packets transmitted, 3 received, 0% packet loss, time 2003ms<br/>
+                            rtt min/avg/max/mdev = 11.821/12.108/12.415/0.243 ms
+                        </div>
+</div>
+<!-- Active Prompt -->
+<div class="mt-stack-md flex items-center">
+<span class="text-secondary-fixed mr-2">user@stitch:~$</span>
+<div class="w-2 h-4 bg-primary-container glitch-cursor inline-block"></div>
+</div>
+</div>
+</div>
+<!-- Floating Status Chips (Canvas Details) -->
+<div class="absolute top-8 right-8 flex flex-col gap-2 z-20">
+<div class="border border-secondary-fixed-dim px-3 py-1 flex items-center gap-2 bg-surface-container-lowest/80 backdrop-blur-sm">
+<span class="w-2 h-2 bg-secondary-fixed-dim rounded-none"></span>
+<span class="font-label-mono text-label-mono text-secondary-fixed-dim">NODE_ALPHA: ONLINE</span>
+</div>
+<div class="border border-tertiary-container px-3 py-1 flex items-center gap-2 bg-surface-container-lowest/80 backdrop-blur-sm">
+<span class="w-2 h-2 bg-tertiary-container rounded-none"></span>
+<span class="font-label-mono text-label-mono text-tertiary-container">MEM_USAGE: 84%</span>
+</div>
+</div>
+</main>
+</div>
+<!-- Footer -->
+<footer class="bg-black flex justify-between items-center px-4 h-6 w-full fixed bottom-0 border-t border-[#00FF41]/10 z-50 flex-shrink-0">
+<span class="font-['Space_Grotesk'] text-[9px] tracking-[0.2em] text-[#00FF41]">SYSTEM_STATUS: NOMINAL // 2024</span>
+<div class="flex gap-6">
+<span class="font-['Space_Grotesk'] text-[9px] tracking-[0.2em] text-gray-700 hover:text-[#00FF41] cursor-default transition-colors">LATENCY: 12MS</span>
+<span class="font-['Space_Grotesk'] text-[9px] tracking-[0.2em] text-gray-700 hover:text-[#00FF41] cursor-default transition-colors">ENCODING: UTF-8</span>
+<span class="font-['Space_Grotesk'] text-[9px] tracking-[0.2em] text-gray-700 hover:text-[#00FF41] cursor-default transition-colors">U_TIME: 12:44:01</span>
+</div>
+</footer>
+<style>
+        /* Custom Scrollbar for terminal vibe */
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 8px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #131313;
+            border-left: 1px solid #353534;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #353534;
+            border: 1px solid #00ff41;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+            background: #00ff41;
+        }
+    </style>
+</body></html>

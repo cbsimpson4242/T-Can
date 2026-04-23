@@ -199,4 +199,44 @@ describe('PtyManager', () => {
       rows: 24,
     })
   })
+
+  it('creates a diagnostic session when both Windows shells fail to spawn', () => {
+    const backend: PtyBackend = {
+      spawn: vi.fn(() => {
+        throw new Error('blocked by policy')
+      }),
+    }
+
+    const manager = new PtyManager({
+      backend,
+      defaultShell: 'C:\\Program Files\\PowerShell\\7\\pwsh.exe',
+      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' },
+      platform: 'win32',
+    })
+
+    const session = manager.createSession({ cwd: 'C:\\workspace' })
+
+    expect(session.shell).toBe('C:\\Windows\\System32\\cmd.exe')
+    expect(() => manager.write(session.sessionId, 'dir\n')).not.toThrow()
+  })
+
+  it('creates a diagnostic session when a Unix shell fails to spawn', () => {
+    const backend: PtyBackend = {
+      spawn: vi.fn(() => {
+        throw new Error('permission denied')
+      }),
+    }
+
+    const manager = new PtyManager({
+      backend,
+      defaultShell: '/bin/bash',
+      env: { TEST_ENV: '1' },
+      platform: 'linux',
+    })
+
+    const session = manager.createSession({ cwd: '/tmp/project' })
+
+    expect(session.shell).toBe('/bin/bash')
+    expect(() => manager.resize(session.sessionId, 120, 40)).not.toThrow()
+  })
 })

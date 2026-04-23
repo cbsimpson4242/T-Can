@@ -16,6 +16,15 @@ interface ActiveNode extends TerminalNodeModel {
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 
+function getWorkspaceLabel(workspacePath: string | null): string {
+  if (!workspacePath) {
+    return 'HOME'
+  }
+
+  const parts = workspacePath.split(/[/\\]/).filter(Boolean)
+  return parts.at(-1)?.toUpperCase() ?? workspacePath.toUpperCase()
+}
+
 function getApi() {
   if (!window.tcan) {
     throw new Error('T-CAN preload API is unavailable. Rebuild the Electron bundles and restart the app.')
@@ -122,6 +131,9 @@ function App() {
       const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
       const session = await getApi().createTerminal({ cwd: workspacePath })
       setNodes((current) => [...current, { ...node, sessionId: session.sessionId, shell: session.shell }])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to create a terminal.\n\n${message}`)
     } finally {
       setIsCreatingTerminal(false)
     }
@@ -187,89 +199,115 @@ function App() {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
-        <div className="sidebar__brand">
-          <p className="eyebrow">T-CAN MVP</p>
-          <h1>Terminal canvas</h1>
-          <p className="lede">Electron workspace with pannable, zoomable terminals for Linux and Windows.</p>
-        </div>
-        <div className="sidebar__actions">
-          <button disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
-            {isOpeningWorkspace ? 'Opening…' : 'Open workspace'}
+      <header className="topbar">
+        <div className="topbar__brand">T_CAN//STITCH</div>
+        <nav className="topbar__nav" aria-label="Primary">
+          <span className="topbar__tab topbar__tab--active">SESSIONS</span>
+          <span className="topbar__tab">WORKSPACE</span>
+          <span className="topbar__tab">NETWORK</span>
+        </nav>
+        <div className="topbar__actions">
+          <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
+            {isOpeningWorkspace ? 'OPENING…' : 'OPEN WORKSPACE'}
           </button>
-          <button disabled={isCreatingTerminal || isBootstrapping} onClick={() => void handleCreateTerminal()} type="button">
-            {isCreatingTerminal ? 'Creating…' : 'New terminal'}
-          </button>
-        </div>
-        <section className="sidebar__panel">
-          <h2>Workspace</h2>
-          <p className="path">{workspacePath ?? 'No folder selected'}</p>
-          <p className="hint">New terminals start in the workspace root when available.</p>
-        </section>
-        <section className="sidebar__panel">
-          <h2>Canvas</h2>
-          <dl className="stats">
-            <div>
-              <dt>Zoom</dt>
-              <dd>{Math.round(viewport.scale * 100)}%</dd>
-            </div>
-            <div>
-              <dt>Nodes</dt>
-              <dd>{nodes.length}</dd>
-            </div>
-          </dl>
-        </section>
-      </aside>
-      <main className="workspace">
-        <div
-          className="canvas"
-          onPointerDown={beginCanvasPan}
-          onWheel={handleWheel}
-          ref={canvasRef}
-          role="presentation"
-        >
-          <div
-            className="canvas__world"
-            style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
+          <button
+            className="command-button"
+            disabled={isCreatingTerminal || isBootstrapping}
+            onClick={() => void handleCreateTerminal()}
+            type="button"
           >
-            {nodes.map((node) => (
-              <TerminalNode
-                key={node.id}
-                node={node}
-                onClose={() => void removeNode(node.id)}
-                onMove={(delta) =>
-                  updateNode(node.id, (current) => ({
-                    ...current,
-                    x: current.x + delta.x,
-                    y: current.y + delta.y,
-                  }))
-                }
-                onResize={(delta) =>
-                  updateNode(node.id, (current) => ({
-                    ...current,
-                    ...clampNodeSize({
-                      width: current.width + delta.width,
-                      height: current.height + delta.height,
-                    }),
-                  }))
-                }
-                scale={viewport.scale}
-                sessionId={node.sessionId}
-                shell={node.shell}
-                workspacePath={workspacePath}
-              />
-            ))}
-          </div>
-          {!nodes.length && !isBootstrapping && (
-            <div className="empty-state">
-              <p>No terminals yet.</p>
-              <button onClick={() => void handleCreateTerminal()} type="button">
-                Create one at center
-              </button>
-            </div>
-          )}
+            {isCreatingTerminal ? 'CREATING…' : 'NEW TERMINAL'}
+          </button>
         </div>
-      </main>
+      </header>
+
+      <div className="app-shell__body">
+        <aside className="rail" aria-label="Tools">
+          <div className="rail__indicator" />
+          <button className="rail__button rail__button--active" type="button">
+            &gt;_
+          </button>
+          <button className="rail__button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
+            WK
+          </button>
+          <button
+            className="rail__button"
+            disabled={isCreatingTerminal || isBootstrapping}
+            onClick={() => void handleCreateTerminal()}
+            type="button"
+          >
+            +
+          </button>
+        </aside>
+
+        <main className="workspace">
+          <div
+            className="canvas"
+            onPointerDown={beginCanvasPan}
+            onWheel={handleWheel}
+            ref={canvasRef}
+            role="presentation"
+          >
+            <div className="canvas__hud">
+              <div className="status-chip status-chip--cyan">WORKSPACE: {getWorkspaceLabel(workspacePath)}</div>
+              <div className="status-chip status-chip--green">NODES: {nodes.length}</div>
+              <div className="status-chip status-chip--amber">ZOOM: {Math.round(viewport.scale * 100)}%</div>
+            </div>
+            <div
+              className="canvas__world"
+              style={{ transform: `translate(${viewport.x}px, ${viewport.y}px) scale(${viewport.scale})` }}
+            >
+              {nodes.map((node) => (
+                <TerminalNode
+                  key={node.id}
+                  node={node}
+                  onClose={() => void removeNode(node.id)}
+                  onMove={(delta) =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      x: current.x + delta.x,
+                      y: current.y + delta.y,
+                    }))
+                  }
+                  onResize={(delta) =>
+                    updateNode(node.id, (current) => ({
+                      ...current,
+                      ...clampNodeSize({
+                        width: current.width + delta.width,
+                        height: current.height + delta.height,
+                      }),
+                    }))
+                  }
+                  scale={viewport.scale}
+                  sessionId={node.sessionId}
+                  shell={node.shell}
+                  workspacePath={workspacePath}
+                />
+              ))}
+            </div>
+            {!nodes.length && !isBootstrapping && (
+              <div className="empty-state">
+                <p className="empty-state__title">NO ACTIVE TERMINALS</p>
+                <p className="empty-state__body">Open a workspace or spawn a shell at the canvas center.</p>
+                <div className="empty-state__actions">
+                  <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
+                    OPEN WORKSPACE
+                  </button>
+                  <button className="command-button" onClick={() => void handleCreateTerminal()} type="button">
+                    SPAWN SHELL
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </main>
+      </div>
+
+      <footer className="statusbar">
+        <span>SYSTEM_STATUS: {isBootstrapping ? 'BOOTSTRAPPING' : 'NOMINAL'}</span>
+        <span>WORKSPACE_ROOT: {workspacePath ?? 'HOME'}</span>
+        <span>VIEWPORT: X={Math.round(viewport.x)} Y={Math.round(viewport.y)}</span>
+      </footer>
     </div>
   )
 }

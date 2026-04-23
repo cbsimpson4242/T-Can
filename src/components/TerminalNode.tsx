@@ -44,12 +44,23 @@ export function TerminalNode(props: TerminalNodeProps) {
 
     const terminal = new Terminal({
       convertEol: true,
-      fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+      fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
       fontSize: 13,
       cursorBlink: true,
       theme: {
-        background: '#0b1020',
-        foreground: '#e5edf7',
+        background: '#0a0a0a',
+        foreground: '#00ff41',
+        cursor: '#00ff41',
+        cursorAccent: '#0a0a0a',
+        selectionBackground: '#003907',
+        black: '#0a0a0a',
+        brightBlack: '#3a3939',
+        green: '#00ff41',
+        brightGreen: '#72ff70',
+        cyan: '#00f1fd',
+        brightCyan: '#6ff6ff',
+        red: '#ff6b6b',
+        yellow: '#ffd166',
       },
     })
     const fitAddon = new FitAddon()
@@ -148,8 +159,13 @@ export function TerminalNode(props: TerminalNodeProps) {
       }}
     >
       <header className="terminal-node__header" onPointerDown={beginDrag}>
-        <div>
-          <strong>{node.title}</strong>
+        <div className="terminal-node__lights" aria-hidden="true">
+          <span className="terminal-node__light terminal-node__light--red" />
+          <span className="terminal-node__light terminal-node__light--amber" />
+          <span className="terminal-node__light terminal-node__light--green" />
+        </div>
+        <div className="terminal-node__titleblock">
+          <strong>{node.title.toUpperCase()}</strong>
           <span>{shellLabel ? `${sessionLabel} • ${shellLabel}` : sessionLabel}</span>
         </div>
         <button aria-label={`Close ${node.title}`} className="icon-button" onClick={onClose} type="button">

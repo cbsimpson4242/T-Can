@@ -157,35 +157,50 @@ export class PtyManager {
     const sessionId = crypto.randomUUID()
     const cwd = request.cwd ?? process.cwd()
     const env = buildTerminalEnvironment(this.env, this.platform)
+    const spawnOptions = {
+      name: 'xterm-256color',
+      cols: request.cols ?? 80,
+      rows: request.rows ?? 24,
+      cwd,
+      env,
+    }
     let shell = this.defaultShell
     let handle: PtyHandle
 
     try {
-      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), {
-        name: 'xterm-256color',
-        cols: request.cols ?? 80,
-        rows: request.rows ?? 24,
-        cwd,
-        env,
-      })
+      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), spawnOptions)
     } catch (error) {
       if (this.platform !== 'win32') {
-        throw error
-      }
+        const reason = error instanceof Error ? error.message : String(error)
+        handle = createUnavailablePtyBackend(`Unable to launch ${shell}: ${reason}`).spawn(
+          shell,
+          resolveShellArgs(shell, this.platform),
+          spawnOptions,
+        )
+      } else {
+        const firstReason = error instanceof Error ? error.message : String(error)
+        const fallbackShell = resolveWindowsFallbackShell(this.env)
 
-      const fallbackShell = resolveWindowsFallbackShell(this.env)
-      if (fallbackShell === shell) {
-        throw error
+        if (fallbackShell === shell) {
+          handle = createUnavailablePtyBackend(`Unable to launch ${shell}: ${firstReason}`).spawn(
+            shell,
+            resolveShellArgs(shell, this.platform),
+            spawnOptions,
+          )
+        } else {
+          shell = fallbackShell
+          try {
+            handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), spawnOptions)
+          } catch (fallbackError) {
+            const fallbackReason = fallbackError instanceof Error ? fallbackError.message : String(fallbackError)
+            handle = createUnavailablePtyBackend(
+              [`Unable to launch ${this.defaultShell}: ${firstReason}`, `Unable to launch ${shell}: ${fallbackReason}`].join(
+                '\n',
+              ),
+            ).spawn(shell, resolveShellArgs(shell, this.platform), spawnOptions)
+          }
+        }
       }
-
-      shell = fallbackShell
-      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), {
-        name: 'xterm-256color',
-        cols: request.cols ?? 80,
-        rows: request.rows ?? 24,
-        cwd,
-        env,
-      })
     }
 
     const info: TerminalSessionInfo = {
