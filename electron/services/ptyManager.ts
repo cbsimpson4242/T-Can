@@ -1,7 +1,13 @@
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import type { CreateTerminalRequest, TerminalExitEvent, TerminalOutputEvent, TerminalSessionInfo } from '../../shared/types'
+import type {
+  CreateTerminalRequest,
+  TerminalExitEvent,
+  TerminalOutputEvent,
+  TerminalSessionInfo,
+  TerminalSessionSnapshot,
+} from '../../shared/types'
 
 export interface Disposable {
   dispose(): void
@@ -13,6 +19,7 @@ export interface PtyHandle {
   write(data: string): void
   resize(cols: number, rows: number): void
   kill(): void
+  readonly pid?: number
 }
 
 export interface PtyBackend {
@@ -33,7 +40,10 @@ interface SessionRecord {
   info: TerminalSessionInfo
   handle: PtyHandle
   disposables: Disposable[]
+  output: string
 }
+
+const MAX_SESSION_OUTPUT_CHARS = 200_000
 
 interface PtyManagerOptions {
   backend: PtyBackend
@@ -207,10 +217,15 @@ export class PtyManager {
       sessionId,
       cwd,
       shell,
+      pid: handle.pid,
     }
 
     const disposables = [
       handle.onData((data) => {
+        const session = this.sessions.get(sessionId)
+        if (session) {
+          session.output = `${session.output}${data}`.slice(-MAX_SESSION_OUTPUT_CHARS)
+        }
         for (const listener of this.outputListeners) {
           listener({ sessionId, data })
         }
@@ -223,8 +238,24 @@ export class PtyManager {
       }),
     ]
 
-    this.sessions.set(sessionId, { info, handle, disposables })
+    this.sessions.set(sessionId, { info, handle, disposables, output: '' })
     return info
+  }
+
+  getSession(sessionId: string): TerminalSessionSnapshot | null {
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return null
+    }
+
+    return {
+      info: session.info,
+      output: session.output,
+    }
+  }
+
+  listSessions(): TerminalSessionInfo[] {
+    return [...this.sessions.values()].map((session) => session.info)
   }
 
   write(sessionId: string, data: string): void {
@@ -311,6 +342,7 @@ function createUnavailablePtyBackend(reason: string): PtyBackend {
             listener(0)
           }
         },
+        pid: undefined,
       }
     },
   }
@@ -344,6 +376,7 @@ export function createNodePtyBackend(): PtyBackend {
             }
             pty.kill('SIGTERM')
           },
+          pid: pty.pid,
         }
       },
     }

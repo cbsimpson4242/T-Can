@@ -16,6 +16,12 @@ const api: TCanApi = {
   createTerminal(request) {
     return ipcRenderer.invoke(IPC_CHANNELS.createTerminal, request)
   },
+  getTerminalSession(sessionId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getTerminalSession, { sessionId })
+  },
+  listTerminals() {
+    return ipcRenderer.invoke(IPC_CHANNELS.listTerminals)
+  },
   writeTerminal(sessionId, data) {
     return ipcRenderer.invoke(IPC_CHANNELS.writeTerminal, { sessionId, data })
   },

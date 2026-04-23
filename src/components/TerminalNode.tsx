@@ -152,7 +152,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       return false
     })
 
-    const handleHostPointerDown = () => {
+    const handleHostPointerFocus = () => {
       focusTerminal()
     }
 
@@ -170,15 +170,24 @@ export function TerminalNode(props: TerminalNodeProps) {
       setIsFocused(false)
     }
 
-    host.addEventListener('pointerdown', handleHostPointerDown)
+    host.addEventListener('pointerdown', handleHostPointerFocus)
+    host.addEventListener('pointerenter', handleHostPointerFocus)
+    host.addEventListener('pointermove', handleHostPointerFocus)
     helperTextarea?.addEventListener('paste', handlePaste, true)
     helperTextarea?.addEventListener('focus', handleFocus)
     helperTextarea?.addEventListener('blur', handleBlur)
 
     void window.tcan.resizeTerminal(sessionId, terminal.cols, terminal.rows)
 
+    let disposed = false
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
       terminal.write(data)
+    })
+
+    void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
+      if (!disposed && snapshot?.output) {
+        terminal.write(snapshot.output)
+      }
     })
 
     const pasteCleanup = subscribeToTerminalPaste(sessionId, (data) => {
@@ -190,9 +199,12 @@ export function TerminalNode(props: TerminalNodeProps) {
     })
 
     return () => {
+      disposed = true
       outputCleanup()
       pasteCleanup()
-      host.removeEventListener('pointerdown', handleHostPointerDown)
+      host.removeEventListener('pointerdown', handleHostPointerFocus)
+      host.removeEventListener('pointerenter', handleHostPointerFocus)
+      host.removeEventListener('pointermove', handleHostPointerFocus)
       helperTextarea?.removeEventListener('paste', handlePaste, true)
       helperTextarea?.removeEventListener('focus', handleFocus)
       helperTextarea?.removeEventListener('blur', handleBlur)
@@ -227,6 +239,10 @@ export function TerminalNode(props: TerminalNodeProps) {
     void pasteFromClipboard('selection', true)
   }
 
+  function handleTerminalHover() {
+    focusTerminal()
+  }
+
   function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
     if (!sessionId) {
       return
@@ -258,6 +274,8 @@ export function TerminalNode(props: TerminalNodeProps) {
       className={className}
       onAuxClick={handleAuxClick}
       onContextMenu={handleContextMenu}
+      onPointerEnter={handleTerminalHover}
+      onPointerMove={handleTerminalHover}
       onPointerDown={(event) => {
         if (event.button === 1) {
           event.preventDefault()

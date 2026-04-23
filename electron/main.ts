@@ -1,5 +1,6 @@
+import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
 import { createNodePtyBackend, PtyManager } from './services/ptyManager'
 import { JsonStore } from './services/jsonStore'
@@ -9,18 +10,53 @@ import {
   persistedLayoutSchema,
   terminalCloseSchema,
   terminalContextMenuSchema,
+  terminalSessionSchema,
   terminalResizeSchema,
   terminalWriteSchema,
 } from '../shared/ipc'
 import type { PersistedAppState } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
+let hoverFocusInterval: NodeJS.Timeout | null = null
 let store: JsonStore
 let persistedState: PersistedAppState
 
 const ptyManager = new PtyManager({
   backend: createNodePtyBackend(),
 })
+
+function isPointInsideBounds(point: Electron.Point, bounds: Electron.Rectangle): boolean {
+  return (
+    point.x >= bounds.x &&
+    point.x < bounds.x + bounds.width &&
+    point.y >= bounds.y &&
+    point.y < bounds.y + bounds.height
+  )
+}
+
+function startAutoFocusOnHover(window: BrowserWindow): void {
+  if (hoverFocusInterval) {
+    clearInterval(hoverFocusInterval)
+  }
+
+  hoverFocusInterval = setInterval(() => {
+    if (window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFocused()) {
+      return
+    }
+
+    const cursorPoint = screen.getCursorScreenPoint()
+    if (isPointInsideBounds(cursorPoint, window.getBounds())) {
+      window.focus()
+    }
+  }, 100)
+
+  window.on('closed', () => {
+    if (hoverFocusInterval) {
+      clearInterval(hoverFocusInterval)
+      hoverFocusInterval = null
+    }
+  })
+}
 
 function createMainWindow(): BrowserWindow {
   const appPath = app.getAppPath()
@@ -42,8 +78,21 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
+  startAutoFocusOnHover(window)
   void window.loadURL(rendererUrl)
   return window
+}
+
+function persistTerminalRegistry(): void {
+  try {
+    const registryPath = path.join(app.getPath('userData'), 'terminal-pids.json')
+    const sessions = ptyManager.listSessions()
+    fs.mkdirSync(path.dirname(registryPath), { recursive: true })
+    fs.writeFileSync(registryPath, JSON.stringify({ sessions, updatedAt: new Date().toISOString() }, null, 2), 'utf8')
+  } catch (error) {
+    const message = error instanceof Error ? error.stack ?? error.message : String(error)
+    process.stderr.write(`[T-CAN] Failed to persist terminal registry: ${message}\n`)
+  }
 }
 
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
@@ -101,8 +150,17 @@ function registerIpcHandlers(): void {
       workspacePath: persistedState.workspacePath,
       homePath: app.getPath('home'),
     })
-    return ptyManager.createSession({ ...request, cwd })
+    const session = ptyManager.createSession({ ...request, cwd })
+    persistTerminalRegistry()
+    return session
   })
+
+  ipcMain.handle(IPC_CHANNELS.getTerminalSession, async (_event, candidate) => {
+    const request = terminalSessionSchema.parse(candidate)
+    return ptyManager.getSession(request.sessionId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.listTerminals, async () => ptyManager.listSessions())
 
   ipcMain.handle(IPC_CHANNELS.writeTerminal, async (_event, candidate) => {
     const request = terminalWriteSchema.parse(candidate)
@@ -117,6 +175,7 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.closeTerminal, async (_event, candidate) => {
     const request = terminalCloseSchema.parse(candidate)
     ptyManager.close(request.sessionId)
+    persistTerminalRegistry()
   })
 
   ipcMain.handle(IPC_CHANNELS.showTerminalContextMenu, async (event, candidate) => {
@@ -143,6 +202,7 @@ function forwardPtyEvents(): void {
     mainWindow?.webContents.send(IPC_CHANNELS.terminalOutput, event)
   })
   ptyManager.onExit((event) => {
+    persistTerminalRegistry()
     mainWindow?.webContents.send(IPC_CHANNELS.terminalExit, event)
   })
 }
@@ -162,11 +222,10 @@ app.whenReady().then(() => {
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') {
-    app.quit()
-  }
+  mainWindow = null
 })
 
 app.on('before-quit', () => {
   ptyManager.disposeAll()
+  persistTerminalRegistry()
 })

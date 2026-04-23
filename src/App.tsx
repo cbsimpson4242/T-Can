@@ -77,6 +77,8 @@ function App() {
         y: node.y,
         width: node.width,
         height: node.height,
+        sessionId: node.sessionId,
+        shell: node.shell,
       })),
       viewport,
     }),
@@ -129,6 +131,13 @@ function App() {
 
         const restoredNodes = await Promise.all(
           state.layout.nodes.map(async (node) => {
+            if (node.sessionId) {
+              const existingSession = await api.getTerminalSession(node.sessionId)
+              if (existingSession) {
+                return { ...node, shell: existingSession.info.shell }
+              }
+            }
+
             const session = await api.createTerminal({ cwd: state.workspacePath })
             return { ...node, sessionId: session.sessionId, shell: session.shell }
           }),

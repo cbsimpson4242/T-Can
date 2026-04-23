@@ -7,6 +7,8 @@ export const terminalNodeSchema = z.object({
   y: z.number(),
   width: z.number(),
   height: z.number(),
+  sessionId: z.string().optional(),
+  shell: z.string().optional(),
 })
 
 export const viewportSchema = z.object({
@@ -29,6 +31,10 @@ export const createTerminalRequestSchema = z.object({
   cwd: z.string().nullable().optional(),
   cols: z.number().int().min(20).max(400).optional(),
   rows: z.number().int().min(5).max(200).optional(),
+})
+
+export const terminalSessionSchema = z.object({
+  sessionId: z.string(),
 })
 
 export const terminalResizeSchema = z.object({
@@ -55,6 +61,8 @@ export const IPC_CHANNELS = {
   saveLayout: 'app:save-layout',
   openWorkspace: 'workspace:open-folder',
   createTerminal: 'terminal:create',
+  getTerminalSession: 'terminal:get-session',
+  listTerminals: 'terminal:list',
   writeTerminal: 'terminal:write',
   resizeTerminal: 'terminal:resize',
   closeTerminal: 'terminal:close',

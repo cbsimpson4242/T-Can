@@ -5,6 +5,8 @@ export interface TerminalNode {
   y: number
   width: number
   height: number
+  sessionId?: string
+  shell?: string
 }
 
 export interface Viewport {
@@ -27,6 +29,12 @@ export interface TerminalSessionInfo {
   sessionId: string
   cwd: string
   shell: string
+  pid?: number
+}
+
+export interface TerminalSessionSnapshot {
+  info: TerminalSessionInfo
+  output: string
 }
 
 export interface CreateTerminalRequest {
