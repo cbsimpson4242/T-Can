@@ -485,7 +485,7 @@ function App() {
         </nav>
         <div className="topbar__actions">
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
-            {isOpeningWorkspace ? 'OPENING…' : 'OPEN WORKSPACE'}
+            {isOpeningWorkspace ? 'OPENING...' : 'OPEN WORKSPACE'}
           </button>
           <button
             className="command-button"
@@ -493,7 +493,7 @@ function App() {
             onClick={() => void handleCreateTerminal()}
             type="button"
           >
-            {isCreatingTerminal ? 'CREATING…' : 'NEW TERMINAL'}
+            {isCreatingTerminal ? 'CREATING...' : 'NEW TERMINAL'}
           </button>
         </div>
       </header>
@@ -539,7 +539,7 @@ function App() {
               <div className="status-chip status-chip--green">NODES: {nodes.length}</div>
               <div className="status-chip status-chip--amber">ZOOM: {Math.round(viewport.scale * 100)}%</div>
               <div className="status-chip">SELECTED: {selectedNodeIds.length}</div>
-              <div className="status-chip">NAV: MMB TO PAN • HOLD KEYBOARD CTRL + WHEEL TO ZOOM</div>
+              <div className="status-chip">NAV: MMB TO PAN / HOLD CTRL + WHEEL TO ZOOM</div>
             </div>
             <div className="canvas__world">
               {nodes.map((node) => {

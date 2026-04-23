@@ -1,4 +1,5 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -58,28 +59,34 @@ export function TerminalNode(props: TerminalNodeProps) {
   const sessionLabel = useMemo(() => workspacePath ?? 'Home shell', [workspacePath])
   const shellLabel = useMemo(() => getShellLabel(shell), [shell])
 
-  function focusTerminal() {
+  const focusTerminal = useCallback(() => {
     terminalRef.current?.focus()
-  }
+  }, [])
 
-  function pasteText(text: string) {
-    if (!text) {
-      return
-    }
+  const pasteText = useCallback(
+    (text: string) => {
+      if (!text) {
+        return
+      }
 
-    terminalRef.current?.paste(text)
-    focusTerminal()
-  }
+      terminalRef.current?.paste(text)
+      focusTerminal()
+    },
+    [focusTerminal],
+  )
 
-  async function pasteFromClipboard(mode: ClipboardTextMode, allowClipboardFallback = false) {
-    let text = await window.tcan.readClipboardText(mode)
+  const pasteFromClipboard = useCallback(
+    async (mode: ClipboardTextMode, allowClipboardFallback = false) => {
+      let text = await window.tcan.readClipboardText(mode)
 
-    if (!text && allowClipboardFallback && mode !== 'clipboard') {
-      text = await window.tcan.readClipboardText('clipboard')
-    }
+      if (!text && allowClipboardFallback && mode !== 'clipboard') {
+        text = await window.tcan.readClipboardText('clipboard')
+      }
 
-    pasteText(text)
-  }
+      pasteText(text)
+    },
+    [pasteText],
+  )
 
   useEffect(() => {
     const host = hostRef.current
@@ -90,7 +97,7 @@ export function TerminalNode(props: TerminalNodeProps) {
     const terminal = new Terminal({
       convertEol: true,
       fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
-      fontSize: BASE_TERMINAL_FONT_SIZE * scale,
+      fontSize: BASE_TERMINAL_FONT_SIZE,
       cursorBlink: true,
       theme: {
         background: '#0a0a0a',
@@ -196,7 +203,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       setIsFocused(false)
       terminal.dispose()
     }
-  }, [node.title, sessionId])
+  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sessionId])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {
@@ -269,7 +276,7 @@ export function TerminalNode(props: TerminalNodeProps) {
         </div>
         <div className="terminal-node__titleblock">
           <strong>{node.title.toUpperCase()}</strong>
-          <span>{shellLabel ? `${sessionLabel} • ${shellLabel}` : sessionLabel}</span>
+          <span>{shellLabel ? `${sessionLabel} / ${shellLabel}` : sessionLabel}</span>
         </div>
         <button
           aria-label={`Close ${node.title}`}
@@ -278,11 +285,11 @@ export function TerminalNode(props: TerminalNodeProps) {
           onPointerDown={(event) => event.stopPropagation()}
           type="button"
         >
-          ×
+          x
         </button>
       </header>
       <div className="terminal-node__body">
-        {!sessionId && <div className="terminal-node__overlay">Starting terminal…</div>}
+        {!sessionId && <div className="terminal-node__overlay">Starting terminal...</div>}
         {sessionId && exitCode !== null && (
           <div className="terminal-node__overlay">Terminal exited with code {exitCode}</div>
         )}
