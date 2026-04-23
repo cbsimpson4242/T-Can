@@ -103,6 +103,10 @@ export function TerminalNode(props: TerminalNodeProps) {
   }, [node.width, node.height, scale, sessionId])
 
   function beginDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
     event.preventDefault()
     let previousX = event.clientX
     let previousY = event.clientY
@@ -126,6 +130,10 @@ export function TerminalNode(props: TerminalNodeProps) {
   }
 
   function beginResize(event: ReactPointerEvent<HTMLButtonElement>) {
+    if (event.button !== 0) {
+      return
+    }
+
     event.preventDefault()
     event.stopPropagation()
     let previousX = event.clientX

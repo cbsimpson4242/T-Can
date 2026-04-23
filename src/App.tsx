@@ -41,6 +41,7 @@ function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
+  const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const layout = useMemo<PersistedLayout>(
     () => ({
@@ -154,9 +155,15 @@ function App() {
   }
 
   function beginCanvasPan(event: ReactPointerEvent<HTMLDivElement>) {
-    if (event.button !== 0 || event.target !== event.currentTarget) {
+    const isPrimaryCanvasDrag = event.button === 0 && event.target === event.currentTarget
+    const isMiddleMouseDrag = event.button === 1
+
+    if (!isPrimaryCanvasDrag && !isMiddleMouseDrag) {
       return
     }
+
+    event.preventDefault()
+    setIsCanvasPanning(true)
 
     const start = { x: event.clientX, y: event.clientY }
     const initialViewport = viewport
@@ -170,12 +177,17 @@ function App() {
     }
 
     const stop = () => {
+      setIsCanvasPanning(false)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
+      window.removeEventListener('pointercancel', stop)
+      window.removeEventListener('blur', stop)
     }
 
     window.addEventListener('pointermove', move)
     window.addEventListener('pointerup', stop)
+    window.addEventListener('pointercancel', stop)
+    window.addEventListener('blur', stop)
   }
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
@@ -242,7 +254,12 @@ function App() {
 
         <main className="workspace">
           <div
-            className="canvas"
+            className={isCanvasPanning ? 'canvas canvas--panning' : 'canvas'}
+            onAuxClick={(event) => {
+              if (event.button === 1) {
+                event.preventDefault()
+              }
+            }}
             onPointerDown={beginCanvasPan}
             onWheel={handleWheel}
             ref={canvasRef}

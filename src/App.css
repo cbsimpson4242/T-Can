@@ -194,6 +194,12 @@ button:disabled {
   background-size: 48px 48px;
 }
 
+.canvas--panning,
+.canvas--panning * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
 .canvas::before {
   content: '';
   position: absolute;
