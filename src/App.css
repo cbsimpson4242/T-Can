@@ -245,6 +245,17 @@ button:disabled {
   transform-origin: 0 0;
 }
 
+.canvas__selection-box {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  border: 1px solid var(--cyan);
+  background: rgba(0, 241, 253, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(0, 241, 253, 0.18);
+  pointer-events: none;
+}
+
 .empty-state {
   position: absolute;
   inset: 0;
@@ -284,6 +295,19 @@ button:disabled {
   border-radius: 0;
   background: #0a0a0a;
   box-shadow: none;
+}
+
+.terminal-node--selected {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 1px rgba(0, 241, 253, 0.3);
+}
+
+.terminal-node--selected .terminal-node__header {
+  border-bottom-color: rgba(0, 241, 253, 0.45);
+}
+
+.terminal-node--selected .terminal-node__header strong {
+  color: var(--cyan);
 }
 
 .terminal-node--active {

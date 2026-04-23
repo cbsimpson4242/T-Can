@@ -64,6 +64,7 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
 
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
+  const isCtrlZoomActiveRef = useRef(false)
   const [workspacePath, setWorkspacePath] = useState<string | null>(null)
   const [nodes, setNodes] = useState<ActiveNode[]>([])
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT)
@@ -90,6 +91,36 @@ function App() {
     }),
     [nodes, viewport],
   )
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Control') {
+        isCtrlZoomActiveRef.current = true
+      }
+    }
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Control') {
+        isCtrlZoomActiveRef.current = false
+      }
+    }
+
+    const resetCtrlZoomModifier = () => {
+      isCtrlZoomActiveRef.current = false
+    }
+
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    window.addEventListener('blur', resetCtrlZoomModifier)
+    document.addEventListener('visibilitychange', resetCtrlZoomModifier)
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+      window.removeEventListener('blur', resetCtrlZoomModifier)
+      document.removeEventListener('visibilitychange', resetCtrlZoomModifier)
+    }
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -269,7 +300,8 @@ function App() {
       })
     }
 
-    const stop = (pointerEvent?: PointerEvent) => {
+    const stop = (event?: Event) => {
+      const pointerEvent = event instanceof PointerEvent ? event : undefined
       const endPoint = pointerEvent ? getCanvasPoint(pointerEvent.clientX, pointerEvent.clientY) ?? startPoint : startPoint
       const rect = createCanvasRect(startPoint, endPoint)
       const width = rect.right - rect.left
@@ -328,7 +360,7 @@ function App() {
     setSelectedNodeIds([nodeId])
   }
 
-  function beginNodeMove(nodeId: string, event: ReactPointerEvent<HTMLDivElement>) {
+  function beginNodeMove(nodeId: string, event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 0) {
       return
     }
@@ -420,6 +452,10 @@ function App() {
   }
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    if (!isCtrlZoomActiveRef.current) {
+      return
+    }
+
     event.preventDefault()
     const bounds = canvasRef.current?.getBoundingClientRect()
     if (!bounds) {
@@ -499,6 +535,7 @@ function App() {
               <div className="status-chip status-chip--green">NODES: {nodes.length}</div>
               <div className="status-chip status-chip--amber">ZOOM: {Math.round(viewport.scale * 100)}%</div>
               <div className="status-chip">SELECTED: {selectedNodeIds.length}</div>
+              <div className="status-chip">NAV: MMB TO PAN • HOLD KEYBOARD CTRL + WHEEL TO ZOOM</div>
             </div>
             <div
               className="canvas__world"
@@ -534,7 +571,7 @@ function App() {
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
                 <p className="empty-state__title">NO ACTIVE TERMINALS</p>
-                <p className="empty-state__body">Open a workspace or spawn a shell at the canvas center.</p>
+                <p className="empty-state__body">Open a workspace or spawn a shell at the canvas center. Zoom only works while the keyboard Ctrl key is held.</p>
                 <div className="empty-state__actions">
                   <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
                     OPEN WORKSPACE
