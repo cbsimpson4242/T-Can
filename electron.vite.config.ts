@@ -1,24 +1,6 @@
 import { defineConfig } from 'vite'
 
-export default defineConfig({
-  build: {
-    outDir: 'dist-electron',
-    emptyOutDir: false,
-    minify: false,
-    sourcemap: true,
-    target: 'node20',
-    lib: {
-      entry: {
-        main: 'electron/main.ts',
-        preload: 'electron/preload.ts',
-      },
-      formats: ['cjs'],
-    },
-    rollupOptions: {
-      external: (id) => id === 'electron' || id === '@homebridge/node-pty-prebuilt-multiarch' || id.startsWith('node:'),
-      output: {
-        entryFileNames: '[name].cjs',
-      },
-    },
-  },
-})
+// Electron bundles are built via scripts/build-electron.mjs.
+// Keeping this file as a valid no-op config avoids accidental multi-entry lib builds
+// that can cause preload.cjs to import main.cjs.
+export default defineConfig({})

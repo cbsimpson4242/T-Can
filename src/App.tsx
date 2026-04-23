@@ -16,6 +16,14 @@ interface ActiveNode extends TerminalNodeModel {
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 
+function getApi() {
+  if (!window.tcan) {
+    throw new Error('T-CAN preload API is unavailable. Rebuild the Electron bundles and restart the app.')
+  }
+
+  return window.tcan
+}
+
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const [workspacePath, setWorkspacePath] = useState<string | null>(null)
@@ -44,27 +52,36 @@ function App() {
     let cancelled = false
 
     async function bootstrap() {
-      const state = await window.tcan.getAppState()
-      if (cancelled) {
-        return
+      try {
+        const api = getApi()
+        const state = await api.getAppState()
+        if (cancelled) {
+          return
+        }
+
+        setWorkspacePath(state.workspacePath)
+        setViewport(state.layout.viewport)
+
+        const restoredNodes = await Promise.all(
+          state.layout.nodes.map(async (node) => {
+            const session = await api.createTerminal({ cwd: state.workspacePath })
+            return { ...node, sessionId: session.sessionId, shell: session.shell }
+          }),
+        )
+
+        if (cancelled) {
+          return
+        }
+
+        setNodes(restoredNodes)
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        window.alert(`Unable to initialize T-CAN.\n\n${message}`)
+      } finally {
+        if (!cancelled) {
+          setIsBootstrapping(false)
+        }
       }
-
-      setWorkspacePath(state.workspacePath)
-      setViewport(state.layout.viewport)
-
-      const restoredNodes = await Promise.all(
-        state.layout.nodes.map(async (node) => {
-          const session = await window.tcan.createTerminal({ cwd: state.workspacePath })
-          return { ...node, sessionId: session.sessionId, shell: session.shell }
-        }),
-      )
-
-      if (cancelled) {
-        return
-      }
-
-      setNodes(restoredNodes)
-      setIsBootstrapping(false)
     }
 
     void bootstrap()
@@ -78,13 +95,13 @@ function App() {
     if (isBootstrapping) {
       return
     }
-    void window.tcan.saveLayout(layout)
+    void getApi().saveLayout(layout)
   }, [isBootstrapping, layout])
 
   async function handleOpenWorkspace() {
     setIsOpeningWorkspace(true)
     try {
-      const nextWorkspace = await window.tcan.openWorkspace()
+      const nextWorkspace = await getApi().openWorkspace()
       setWorkspacePath(nextWorkspace)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -103,7 +120,7 @@ function App() {
     setIsCreatingTerminal(true)
     try {
       const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
-      const session = await window.tcan.createTerminal({ cwd: workspacePath })
+      const session = await getApi().createTerminal({ cwd: workspacePath })
       setNodes((current) => [...current, { ...node, sessionId: session.sessionId, shell: session.shell }])
     } finally {
       setIsCreatingTerminal(false)
@@ -114,7 +131,7 @@ function App() {
     setNodes((current) => {
       const node = current.find((entry) => entry.id === nodeId)
       if (node?.sessionId) {
-        void window.tcan.closeTerminal(node.sessionId)
+        void getApi().closeTerminal(node.sessionId)
       }
       return current.filter((entry) => entry.id !== nodeId)
     })
