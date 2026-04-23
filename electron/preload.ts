@@ -31,6 +31,9 @@ const api: TCanApi = {
   closeTerminal(sessionId) {
     return ipcRenderer.invoke(IPC_CHANNELS.closeTerminal, { sessionId })
   },
+  closeAllTerminals() {
+    return ipcRenderer.invoke(IPC_CHANNELS.closeAllTerminals)
+  },
   readClipboardText(mode: ClipboardTextMode = 'clipboard') {
     try {
       return Promise.resolve(clipboard.readText(mode))

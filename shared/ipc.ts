@@ -66,6 +66,7 @@ export const IPC_CHANNELS = {
   writeTerminal: 'terminal:write',
   resizeTerminal: 'terminal:resize',
   closeTerminal: 'terminal:close',
+  closeAllTerminals: 'terminal:close-all',
   showTerminalContextMenu: 'terminal:show-context-menu',
   terminalOutput: 'terminal:output',
   terminalExit: 'terminal:exit',

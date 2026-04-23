@@ -178,6 +178,11 @@ function registerIpcHandlers(): void {
     persistTerminalRegistry()
   })
 
+  ipcMain.handle(IPC_CHANNELS.closeAllTerminals, async () => {
+    ptyManager.disposeAll()
+    persistTerminalRegistry()
+  })
+
   ipcMain.handle(IPC_CHANNELS.showTerminalContextMenu, async (event, candidate) => {
     const request = terminalContextMenuSchema.parse(candidate)
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined

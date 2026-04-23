@@ -64,6 +64,7 @@ function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
+  const [isKillingTerminals, setIsKillingTerminals] = useState(false)
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
@@ -214,6 +215,24 @@ function App() {
       return current.filter((entry) => entry.id !== nodeId)
     })
     setSelectedNodeIds((current) => current.filter((entry) => entry !== nodeId))
+  }
+
+  async function handleKillAllTerminals() {
+    if (!nodes.length || !window.confirm('Kill all running T-CAN terminals? This will stop any agents/processes inside them.')) {
+      return
+    }
+
+    setIsKillingTerminals(true)
+    try {
+      await getApi().closeAllTerminals()
+      setNodes([])
+      setSelectedNodeIds([])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to kill terminals.\n\n${message}`)
+    } finally {
+      setIsKillingTerminals(false)
+    }
   }
 
   function getCanvasPoint(clientX: number, clientY: number) {
@@ -495,6 +514,14 @@ function App() {
           >
             {isCreatingTerminal ? 'CREATING...' : 'NEW TERMINAL'}
           </button>
+          <button
+            className="command-button command-button--danger"
+            disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
+            onClick={() => void handleKillAllTerminals()}
+            type="button"
+          >
+            {isKillingTerminals ? 'KILLING...' : `KILL ALL (${nodes.length})`}
+          </button>
         </div>
       </header>
 
@@ -514,6 +541,14 @@ function App() {
             type="button"
           >
             +
+          </button>
+          <button
+            className="rail__button rail__button--danger"
+            disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
+            onClick={() => void handleKillAllTerminals()}
+            type="button"
+          >
+            !!
           </button>
         </aside>
 
@@ -592,6 +627,7 @@ function App() {
 
       <footer className="statusbar">
         <span>SYSTEM_STATUS: {isBootstrapping ? 'BOOTSTRAPPING' : 'NOMINAL'}</span>
+        <span>TERMINALS: {nodes.length}</span>
         <span>WORKSPACE_ROOT: {workspacePath ?? 'HOME'}</span>
         <span>VIEWPORT: X={Math.round(viewport.x)} Y={Math.round(viewport.y)}</span>
       </footer>

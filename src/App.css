@@ -158,6 +158,16 @@ button:disabled {
   white-space: nowrap;
 }
 
+.command-button--danger {
+  border-color: rgba(255, 107, 107, 0.45);
+  color: #ff8b8b;
+}
+
+.command-button--danger:hover:not(:disabled) {
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
+}
+
 .app-shell__body {
   min-height: 0;
   display: grid;
@@ -204,6 +214,17 @@ button:disabled {
   color: var(--green);
   border-color: var(--green);
   background: rgba(88, 242, 161, 0.11);
+}
+
+.rail__button--danger {
+  color: #ff8b8b;
+  border-color: rgba(255, 107, 107, 0.36);
+}
+
+.rail__button--danger:hover:not(:disabled) {
+  color: #ff8b8b;
+  border-color: #ff6b6b;
+  background: rgba(255, 107, 107, 0.12);
 }
 
 .workspace {
