@@ -52,6 +52,9 @@ const api: TCanApi = {
   replaceWorkspaceText(workspaceId, query, replacement) {
     return ipcRenderer.invoke(IPC_CHANNELS.replaceWorkspaceText, { workspaceId, query, replacement })
   },
+  listWorkspaceSymbols(workspaceId, query = '') {
+    return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceSymbols, { workspaceId, query })
+  },
   saveLayout(layout) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
   },

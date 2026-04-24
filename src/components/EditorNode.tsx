@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import Editor, { type OnMount } from '@monaco-editor/react'
+import Editor, { type BeforeMount, type OnMount } from '@monaco-editor/react'
 import type { editor } from 'monaco-editor'
-import type { EditorNode as EditorNodeModel, EditorTab, NodeResizeDirection } from '../../shared/types'
+import { extractFileSymbols, guessLanguageFromPath } from '../../shared/languageIntelligence'
+import type { EditorNode as EditorNodeModel, EditorTab, NodeResizeDirection, WorkspaceSymbol } from '../../shared/types'
 
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 const AUTOSAVE_DELAY_MS = 900
@@ -31,26 +32,25 @@ interface EditorNodeProps {
   onSplit(filePath: string): void
 }
 
-function guessLanguage(filePath: string): string | undefined {
-  const extension = filePath.split('.').pop()?.toLowerCase()
-  switch (extension) {
-    case 'ts':
-    case 'tsx':
-      return 'typescript'
-    case 'js':
-    case 'jsx':
-      return 'javascript'
-    case 'json':
-      return 'json'
-    case 'css':
-      return 'css'
-    case 'html':
-      return 'html'
-    case 'md':
-      return 'markdown'
-    default:
-      return undefined
+function configureMonacoLanguageIntelligence(monaco: Parameters<BeforeMount>[0]) {
+  const compilerOptions = {
+    target: monaco.languages.typescript.ScriptTarget.ESNext,
+    module: monaco.languages.typescript.ModuleKind.ESNext,
+    moduleResolution: monaco.languages.typescript.ModuleResolutionKind.NodeJs,
+    jsx: monaco.languages.typescript.JsxEmit.ReactJSX,
+    allowJs: true,
+    checkJs: true,
+    allowNonTsExtensions: true,
+    noEmit: true,
+    strict: true,
   }
+
+  monaco.languages.typescript.typescriptDefaults.setCompilerOptions(compilerOptions)
+  monaco.languages.typescript.javascriptDefaults.setCompilerOptions(compilerOptions)
+  monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false })
+  monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false })
+  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true)
+  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true)
 }
 
 function getTitle(filePath: string): string {
@@ -89,6 +89,8 @@ export function EditorNode(props: EditorNodeProps) {
   const [error, setError] = useState<string | null>(null)
   const [showMinimap, setShowMinimap] = useState(true)
   const [wordWrap, setWordWrap] = useState(true)
+  const [showOutline, setShowOutline] = useState(false)
+  const [markerCounts, setMarkerCounts] = useState({ errors: 0, warnings: 0 })
   const tabs = useMemo(() => normalizeTabs(node), [node])
   const activeFilePath = node.activeFilePath && tabs.some((tab) => tab.filePath === node.activeFilePath)
     ? node.activeFilePath
@@ -102,7 +104,8 @@ export function EditorNode(props: EditorNodeProps) {
   const isDirty = dirtyPaths.includes(activeFilePath)
   const isLoading = loadingPaths.has(activeFilePath)
   const isSaving = savingPaths.has(activeFilePath)
-  const language = activeTab?.language ?? guessLanguage(activeFilePath)
+  const language = activeTab?.language ?? guessLanguageFromPath(activeFilePath)
+  const activeSymbols = useMemo(() => extractFileSymbols(activeFilePath, content), [activeFilePath, content])
 
   useEffect(() => {
     onDirtyChange(node.id, dirtyPaths)
@@ -265,6 +268,16 @@ export function EditorNode(props: EditorNodeProps) {
     void editorRef.current?.getAction(actionId)?.run()
   }
 
+  function jumpToSymbol(symbol: WorkspaceSymbol) {
+    editorRef.current?.setPosition({ lineNumber: symbol.line, column: symbol.column })
+    editorRef.current?.revealLineInCenter(symbol.line)
+    editorRef.current?.focus()
+  }
+
+  const handleEditorBeforeMount: BeforeMount = (monaco) => {
+    configureMonacoLanguageIntelligence(monaco)
+  }
+
   const handleEditorMount: OnMount = (editorInstance) => {
     editorRef.current = editorInstance
   }
@@ -320,17 +333,45 @@ export function EditorNode(props: EditorNodeProps) {
         <button type="button" onClick={() => runEditorAction('editor.action.startFindReplaceAction')}>Replace</button>
         <button type="button" onClick={() => runEditorAction('editor.action.gotoLine')}>Line</button>
         <button type="button" onClick={() => runEditorAction('editor.action.formatDocument')}>Format</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.triggerSuggest')}>Suggest</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.showHover')}>Hover</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.revealDefinition')}>Definition</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.goToReferences')}>Refs</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.rename')}>Rename</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.quickFix')}>Fix</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.marker.next')}>Problems {markerCounts.errors}/{markerCounts.warnings}</button>
+        <button type="button" onClick={() => setShowOutline((current) => !current)}>Outline {activeSymbols.length}</button>
         <button type="button" onClick={() => setWordWrap((current) => !current)}>Wrap {wordWrap ? 'On' : 'Off'}</button>
         <button type="button" onClick={() => setShowMinimap((current) => !current)}>Map {showMinimap ? 'On' : 'Off'}</button>
       </div>
       <div className="editor-node__body">
+        {showOutline && (
+          <aside className="editor-node__outline" onPointerDown={(event) => event.stopPropagation()}>
+            <header>OUTLINE</header>
+            {activeSymbols.length === 0 ? (
+              <p>No symbols detected.</p>
+            ) : activeSymbols.map((symbol) => (
+              <button key={`${symbol.kind}-${symbol.name}-${symbol.line}-${symbol.column}`} onClick={() => jumpToSymbol(symbol)} type="button">
+                <strong>{symbol.name}</strong>
+                <span>{symbol.kind} · {symbol.line}:{symbol.column}</span>
+              </button>
+            ))}
+          </aside>
+        )}
         {error && <div className="editor-node__overlay">{error}</div>}
         {isLoading && <div className="editor-node__overlay">Loading file...</div>}
         <Editor
+          beforeMount={handleEditorBeforeMount}
           height="100%"
           language={language}
           onChange={(value) => setContents((current) => ({ ...current, [activeFilePath]: value ?? '' }))}
           onMount={handleEditorMount}
+          onValidate={(markers) => {
+            setMarkerCounts({
+              errors: markers.filter((marker) => marker.severity >= 8).length,
+              warnings: markers.filter((marker) => marker.severity === 4).length,
+            })
+          }}
           options={{
             automaticLayout: true,
             fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',

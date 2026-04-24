@@ -21,10 +21,12 @@ import {
   workspaceFileSaveSchema,
   workspacePathRenameSchema,
   workspaceRequestSchema,
+  workspaceSymbolRequestSchema,
   workspaceTextReplaceSchema,
   workspaceTextSearchSchema,
 } from '../shared/ipc'
-import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTextSearchResult } from '../shared/types'
+import { extractFileSymbols } from '../shared/languageIntelligence'
+import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceSymbol, WorkspaceTextSearchResult } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
@@ -428,6 +430,26 @@ function replaceWorkspaceText(workspaceId: string, query: string, replacement: s
   return matches
 }
 
+function listWorkspaceSymbols(workspaceId: string, query = ''): WorkspaceSymbol[] {
+  assertLocalWorkspace(workspaceId)
+  const normalizedQuery = query.trim().toLowerCase()
+  const symbols: WorkspaceSymbol[] = []
+
+  for (const relativePath of walkWorkspaceTextFiles(workspaceId)) {
+    const filePath = resolveWorkspacePath(workspaceId, relativePath)
+    for (const symbol of extractFileSymbols(relativePath, fs.readFileSync(filePath, 'utf8'))) {
+      if (!normalizedQuery || symbol.name.toLowerCase().includes(normalizedQuery) || symbol.relativePath.toLowerCase().includes(normalizedQuery)) {
+        symbols.push(symbol)
+      }
+      if (symbols.length >= 500) {
+        return symbols
+      }
+    }
+  }
+
+  return symbols.sort((a, b) => a.name.localeCompare(b.name) || a.relativePath.localeCompare(b.relativePath))
+}
+
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
   persistedState = {
     activeWorkspaceId: nextState.activeWorkspaceId,
@@ -628,6 +650,11 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.replaceWorkspaceText, async (_event, candidate) => {
     const request = workspaceTextReplaceSchema.parse(candidate)
     return replaceWorkspaceText(request.workspaceId, request.query, request.replacement)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.listWorkspaceSymbols, async (_event, candidate) => {
+    const request = workspaceSymbolRequestSchema.parse(candidate)
+    return listWorkspaceSymbols(request.workspaceId, request.query)
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {

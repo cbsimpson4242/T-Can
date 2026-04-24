@@ -652,6 +652,67 @@ button.topbar__tab:hover:not(:disabled),
     #070909;
 }
 
+.editor-node__outline {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 3;
+  width: min(250px, 42%);
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  border-left: 1px solid rgba(97, 216, 255, 0.28);
+  background: rgba(8, 11, 13, 0.96);
+  box-shadow: -18px 0 40px rgba(0, 0, 0, 0.2);
+}
+
+.editor-node__outline header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0.55rem 0.7rem;
+  border-bottom: 1px solid rgba(116, 139, 135, 0.16);
+  background: rgba(8, 11, 13, 0.98);
+  color: var(--cyan);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.12em;
+}
+
+.editor-node__outline p {
+  margin: 0;
+  padding: 0.7rem;
+  color: rgba(237, 242, 239, 0.48);
+  font-size: 0.68rem;
+}
+
+.editor-node__outline button {
+  display: grid;
+  gap: 0.1rem;
+  min-height: 0;
+  padding: 0.48rem 0.7rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(237, 242, 239, 0.78);
+  font-size: 0.68rem;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.editor-node__outline button:hover:not(:disabled) {
+  background: rgba(97, 216, 255, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.editor-node__outline button span {
+  color: rgba(237, 242, 239, 0.42);
+  font-size: 0.6rem;
+}
+
 .editor-node__overlay {
   position: absolute;
   inset: 0;
@@ -875,6 +936,32 @@ button.topbar__tab:hover:not(:disabled),
   padding: 0.35rem 0.45rem;
   text-align: left;
   text-transform: none;
+}
+
+.workspace-search__symbol {
+  width: 100%;
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.48rem 0.6rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: rgba(237, 242, 239, 0.84);
+  font-size: 0.72rem;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.workspace-search__symbol:hover:not(:disabled) {
+  background: rgba(97, 216, 255, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.workspace-search__symbol span {
+  color: rgba(237, 242, 239, 0.48);
+  font-size: 0.62rem;
 }
 
 .workspace-search__match {

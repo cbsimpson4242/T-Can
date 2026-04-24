@@ -35,23 +35,26 @@ Progress note (2026-04-24): Core editor features are implemented in the canvas e
 ## Language intelligence
 
 - [ ] Language Server Protocol integration
-  - TypeScript/JavaScript, Python, Rust, Go, etc.
-  - Autocomplete.
-  - Hover documentation.
-  - Go to definition.
-  - Find references.
-  - Rename symbol.
-  - Diagnostics/errors/warnings.
-  - Code actions/quick fixes.
-- [ ] Project-aware indexing
-  - Symbol search.
-  - Workspace symbol search.
-  - Outline view.
-  - Jump to class/function/file.
+  - [x] TypeScript/JavaScript Monaco language intelligence enabled.
+  - [ ] Python, Rust, Go external LSP adapters.
+  - [x] Autocomplete.
+  - [x] Hover documentation.
+  - [x] Go to definition.
+  - [x] Find references.
+  - [x] Rename symbol.
+  - [x] Diagnostics/errors/warnings.
+  - [x] Code actions/quick fixes.
+- [x] Project-aware indexing
+  - [x] Symbol search.
+  - [x] Workspace symbol search.
+  - [x] Outline view.
+  - [x] Jump to class/function/file.
 - [ ] Formatting and linting
-  - Prettier/ESLint integration.
-  - Per-language formatters.
-  - Show lint diagnostics inline.
+  - [ ] Prettier/ESLint integration.
+  - [x] Per-language formatters via Monaco where available.
+  - [x] Show lint/diagnostic counts inline for open files.
+
+Progress note (2026-04-24): Added Monaco-powered TypeScript/JavaScript intelligence actions, inline diagnostics counts, file outline, and workspace symbol indexing/search for TS/JS/Python/Rust/Go-style symbols. Remaining work is true external LSP/DAP-style adapters and dedicated Prettier/ESLint wiring.
 
 ## Terminal/workspace integration
 

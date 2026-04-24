@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, EditorTab, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry, WorkspaceTextSearchResult } from '../shared/types'
+import type { CanvasNode, EditorTab, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry, WorkspaceSymbol, WorkspaceTextSearchResult } from '../shared/types'
 import { CommandPalette } from './components/CommandPalette'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
@@ -34,6 +34,12 @@ interface WorkspaceSearchState {
   query: string
   replacement: string
   results: WorkspaceTextSearchResult[]
+  searching: boolean
+}
+
+interface WorkspaceSymbolState {
+  query: string
+  results: WorkspaceSymbol[]
   searching: boolean
 }
 
@@ -118,6 +124,8 @@ function App() {
   const [autoSave, setAutoSave] = useState(false)
   const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false)
   const [workspaceSearch, setWorkspaceSearch] = useState<WorkspaceSearchState>({ query: '', replacement: '', results: [], searching: false })
+  const [isWorkspaceSymbolOpen, setIsWorkspaceSymbolOpen] = useState(false)
+  const [workspaceSymbols, setWorkspaceSymbols] = useState<WorkspaceSymbolState>({ query: '', results: [], searching: false })
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
   const [sshHostInput, setSshHostInput] = useState('example.com')
@@ -227,6 +235,12 @@ function App() {
       if (usesCommandModifier && event.shiftKey && event.key.toLowerCase() === 'f') {
         event.preventDefault()
         setIsWorkspaceSearchOpen(true)
+        return
+      }
+
+      if (usesCommandModifier && event.key.toLowerCase() === 't') {
+        event.preventDefault()
+        setIsWorkspaceSymbolOpen(true)
         return
       }
 
@@ -1037,6 +1051,29 @@ function App() {
     }
   }
 
+  async function runWorkspaceSymbolSearch(query = workspaceSymbols.query) {
+    if (!activeWorkspaceId) {
+      return
+    }
+    setWorkspaceSymbols((current) => ({ ...current, searching: true }))
+    try {
+      const results = await getApi().listWorkspaceSymbols(activeWorkspaceId, query)
+      setWorkspaceSymbols((current) => ({ ...current, query, results }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Workspace symbol search failed.\n\n${message}`)
+    } finally {
+      setWorkspaceSymbols((current) => ({ ...current, searching: false }))
+    }
+  }
+
+  function openWorkspaceSymbolSearch() {
+    setIsWorkspaceSymbolOpen(true)
+    if (workspaceSymbols.results.length === 0) {
+      void runWorkspaceSymbolSearch('')
+    }
+  }
+
   const commandPaletteCommands = [
     {
       id: 'open-workspace',
@@ -1085,6 +1122,13 @@ function App() {
       description: 'Search and replace text across the active workspace.',
       disabled: !activeWorkspaceId || activeWorkspace?.kind === 'ssh',
       run: () => setIsWorkspaceSearchOpen(true),
+    },
+    {
+      id: 'workspace-symbols',
+      label: 'Workspace symbols',
+      description: 'Find classes, functions, types, and other project symbols.',
+      disabled: !activeWorkspaceId || activeWorkspace?.kind === 'ssh',
+      run: openWorkspaceSymbolSearch,
     },
     {
       id: 'refresh-files',
@@ -1205,6 +1249,52 @@ function App() {
           </section>
         </div>
       )}
+      {isWorkspaceSymbolOpen && (
+        <div className="workspace-search" role="presentation" onMouseDown={() => setIsWorkspaceSymbolOpen(false)}>
+          <section className="workspace-search__panel" aria-label="Workspace symbols" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="workspace-search__header">
+              <strong>WORKSPACE SYMBOLS</strong>
+              <button className="icon-button" onClick={() => setIsWorkspaceSymbolOpen(false)} type="button">x</button>
+            </header>
+            <div className="workspace-search__fields">
+              <input
+                autoFocus
+                onChange={(event) => setWorkspaceSymbols((current) => ({ ...current, query: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void runWorkspaceSymbolSearch()
+                  }
+                }}
+                placeholder="Search classes, functions, types, symbols"
+                value={workspaceSymbols.query}
+              />
+              <div className="workspace-search__actions">
+                <button className="command-button" disabled={workspaceSymbols.searching} onClick={() => void runWorkspaceSymbolSearch()} type="button">
+                  {workspaceSymbols.searching ? 'INDEXING...' : 'Search symbols'}
+                </button>
+              </div>
+            </div>
+            <div className="workspace-search__results">
+              {workspaceSymbols.results.length === 0 ? (
+                <p>No symbols found.</p>
+              ) : workspaceSymbols.results.map((symbol) => (
+                <button
+                  className="workspace-search__symbol"
+                  key={`${symbol.relativePath}-${symbol.kind}-${symbol.name}-${symbol.line}-${symbol.column}`}
+                  onClick={() => {
+                    handleOpenFileFromExplorer(symbol.relativePath)
+                    setIsWorkspaceSymbolOpen(false)
+                  }}
+                  type="button"
+                >
+                  <strong>{symbol.name}</strong>
+                  <span>{symbol.kind} · {symbol.relativePath}:{symbol.line}:{symbol.column}</span>
+                </button>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
       {isSshDialogOpen && (
         <div className="ssh-dialog" role="presentation" onMouseDown={closeSshDialog}>
           <form className="ssh-dialog__panel" aria-label="Open SSH workspace" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => void handleSshDialogSubmit(event)}>
@@ -1307,6 +1397,9 @@ function App() {
           </button>
           <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={() => setIsWorkspaceSearchOpen(true)} type="button">
             SEARCH
+          </button>
+          <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={openWorkspaceSymbolSearch} type="button">
+            SYMBOLS
           </button>
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}

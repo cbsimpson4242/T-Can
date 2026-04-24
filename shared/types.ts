@@ -115,6 +115,27 @@ export interface WorkspaceTextSearchResult {
   matches: WorkspaceTextSearchMatch[]
 }
 
+export type WorkspaceSymbolKind =
+  | 'class'
+  | 'function'
+  | 'method'
+  | 'interface'
+  | 'type'
+  | 'enum'
+  | 'variable'
+  | 'struct'
+  | 'trait'
+
+export interface WorkspaceSymbol {
+  name: string
+  kind: WorkspaceSymbolKind
+  relativePath: string
+  line: number
+  column: number
+  language?: string
+  containerName?: string
+}
+
 export type ClipboardTextMode = 'clipboard' | 'selection'
 
 export interface TerminalClipboardRequest {

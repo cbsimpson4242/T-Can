@@ -12,6 +12,7 @@ import type {
   WorkspaceFileEntry,
   WorkspaceFileMutationResult,
   WorkspaceFileReadResult,
+  WorkspaceSymbol,
   WorkspaceTextSearchResult,
 } from './types'
 
@@ -32,6 +33,7 @@ export interface TCanApi {
   revealWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
   searchWorkspaceText(workspaceId: string, query: string): Promise<WorkspaceTextSearchResult[]>
   replaceWorkspaceText(workspaceId: string, query: string, replacement: string): Promise<WorkspaceTextSearchResult[]>
+  listWorkspaceSymbols(workspaceId: string, query?: string): Promise<WorkspaceSymbol[]>
   saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>

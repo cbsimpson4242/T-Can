@@ -105,6 +105,11 @@ export const workspaceTextReplaceSchema = workspaceTextSearchSchema.extend({
   replacement: z.string(),
 })
 
+export const workspaceSymbolRequestSchema = z.object({
+  workspaceId: z.string(),
+  query: z.string().optional().default(''),
+})
+
 export const createTerminalRequestSchema = z.object({
   cwd: z.string().nullable().optional(),
   command: z.string().optional(),
@@ -159,6 +164,7 @@ export const IPC_CHANNELS = {
   revealWorkspacePath: 'workspace:reveal-path',
   searchWorkspaceText: 'workspace:search-text',
   replaceWorkspaceText: 'workspace:replace-text',
+  listWorkspaceSymbols: 'workspace:list-symbols',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',
