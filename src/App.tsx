@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
 import type { CanvasNode, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
+import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
 import {
   clampNodeSize,
   createCanvasRect,
+  createEditorNode,
   createTerminalNode,
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
@@ -239,7 +241,20 @@ function App() {
   }
 
   function handleOpenFileFromExplorer(relativePath: string) {
-    window.alert(`Editor nodes are next. Selected file:\n\n${relativePath}`)
+    const existingNode = nodes.find((node) => node.type === 'editor' && node.filePath === relativePath)
+    if (existingNode) {
+      setSelectedNodeIds([existingNode.id])
+      return
+    }
+
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    if (!bounds) {
+      return
+    }
+
+    const node = createEditorNode(getViewportCenterWorldPoint(viewport, bounds), relativePath)
+    setNodes((current) => [...current, node])
+    setSelectedNodeIds([node.id])
   }
 
   useEffect(() => {
@@ -509,7 +524,7 @@ function App() {
     }
 
     const target = event.target as HTMLElement | null
-    if (!target?.closest('.terminal-node__body')) {
+    if (!target?.closest('.terminal-node__body') && !target?.closest('.editor-node__body')) {
       return
     }
 
@@ -753,8 +768,30 @@ function App() {
               {nodes.map((node) => {
                 const canvasRect = getNodeCanvasRect(node, viewport)
 
-                if (node.type !== 'terminal') {
-                  return null
+                if (node.type === 'editor') {
+                  if (!activeWorkspaceId) {
+                    return null
+                  }
+
+                  return (
+                    <EditorNode
+                      key={node.id}
+                      canvasRect={{
+                        left: canvasRect.left,
+                        top: canvasRect.top,
+                        width: canvasRect.right - canvasRect.left,
+                        height: canvasRect.bottom - canvasRect.top,
+                      }}
+                      node={node}
+                      onClose={() => void removeNode(node.id)}
+                      onMoveStart={(event) => beginNodeMove(node.id, event)}
+                      onResizeStart={(event) => beginNodeResize(node.id, event)}
+                      onSelect={(event) => handleNodeSelect(node.id, event)}
+                      scale={viewport.scale}
+                      selected={selectedNodeIdSet.has(node.id)}
+                      workspaceId={activeWorkspaceId}
+                    />
+                  )
                 }
 
                 return (
