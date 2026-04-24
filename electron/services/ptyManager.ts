@@ -63,14 +63,17 @@ function getEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
   return matchedKey ? env[matchedKey] : undefined
 }
 
-function pickFirstShellCandidate(candidates: Array<string | undefined>): string | undefined {
+function pickFirstShellCandidate(
+  candidates: Array<string | undefined>,
+  pathExists: (candidate: string) => boolean = fs.existsSync,
+): string | undefined {
   for (const candidate of candidates) {
     if (!candidate) {
       continue
     }
 
     const looksLikePath = candidate.includes('\\') || candidate.includes('/')
-    if (!looksLikePath || fs.existsSync(candidate)) {
+    if (!looksLikePath || pathExists(candidate)) {
       return candidate
     }
   }
@@ -79,26 +82,45 @@ function pickFirstShellCandidate(candidates: Array<string | undefined>): string 
 }
 
 export function resolveWindowsFallbackShell(env: NodeJS.ProcessEnv): string {
-  return pickFirstShellCandidate([getEnvValue(env, 'COMSPEC'), 'cmd.exe']) ?? 'cmd.exe'
+  return getEnvValue(env, 'COMSPEC') ?? 'cmd.exe'
 }
 
-export function resolveWindowsShell(env: NodeJS.ProcessEnv): string {
-  const systemRoot = getEnvValue(env, 'SystemRoot') ?? 'C:\\Windows'
+export function resolveWindowsShell(
+  env: NodeJS.ProcessEnv,
+  pathExists: (candidate: string) => boolean = fs.existsSync,
+): string {
+  const systemRoot = getEnvValue(env, 'SystemRoot') ?? getEnvValue(env, 'WINDIR') ?? 'C:\\Windows'
   const programFiles = getEnvValue(env, 'ProgramW6432') ?? getEnvValue(env, 'ProgramFiles') ?? 'C:\\Program Files'
 
-  return pickFirstShellCandidate([
-    path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
-    path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
-    resolveWindowsFallbackShell(env),
-  ]) ?? 'cmd.exe'
+  return pickFirstShellCandidate(
+    [
+      path.win32.join(programFiles, 'PowerShell', '7', 'pwsh.exe'),
+      path.win32.join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+      'powershell.exe',
+      resolveWindowsFallbackShell(env),
+    ],
+    pathExists,
+  ) ?? 'cmd.exe'
 }
 
-export function resolveDefaultShell(env: NodeJS.ProcessEnv, platform = process.platform): string {
+export function resolveDefaultShell(
+  env: NodeJS.ProcessEnv,
+  platform = process.platform,
+  pathExists: (candidate: string) => boolean = fs.existsSync,
+): string {
   if (platform === 'win32') {
-    return resolveWindowsShell(env)
+    return resolveWindowsShell(env, pathExists)
   }
 
   return getEnvValue(env, 'SHELL') ?? '/bin/bash'
+}
+
+export function getDefaultShell(
+  platform: NodeJS.Platform,
+  env: NodeJS.ProcessEnv,
+  pathExists: (candidate: string) => boolean = fs.existsSync,
+): string {
+  return resolveDefaultShell(env, platform, pathExists)
 }
 
 function getShellCommandName(shell: string, platform = process.platform): string {
@@ -143,14 +165,40 @@ export function buildTerminalEnvironment(
   env: NodeJS.ProcessEnv,
   platform = process.platform,
 ): NodeJS.ProcessEnv {
-  if (platform === 'win32') {
-    return { ...env }
+  const nextEnv: NodeJS.ProcessEnv = {
+    ...env,
   }
 
-  return {
-    ...env,
-    TERM: getEnvValue(env, 'TERM') ?? 'xterm-256color',
+  if (platform !== 'win32') {
+    nextEnv.TERM = getEnvValue(env, 'TERM') ?? 'xterm-256color'
+    return nextEnv
   }
+
+  const delimiter = ';'
+  const pathKey = env.Path ? 'Path' : 'PATH'
+  const currentPath = env[pathKey] ?? env.PATH ?? env.Path ?? ''
+  const appData = env.APPDATA ?? (env.USERPROFILE ? path.win32.join(env.USERPROFILE, 'AppData', 'Roaming') : undefined)
+  const localAppData = env.LOCALAPPDATA ?? (env.USERPROFILE ? path.win32.join(env.USERPROFILE, 'AppData', 'Local') : undefined)
+  const userProfile = env.USERPROFILE
+
+  const candidateEntries = [
+    appData ? path.win32.join(appData, 'npm') : undefined,
+    userProfile ? path.win32.join(userProfile, '.opencode', 'bin') : undefined,
+    localAppData ? path.win32.join(localAppData, 'Programs', 'opencode', 'bin') : undefined,
+  ].filter((entry): entry is string => Boolean(entry))
+
+  const segments = new Set(currentPath.split(delimiter).filter(Boolean))
+  for (const entry of candidateEntries) {
+    segments.add(entry)
+  }
+
+  nextEnv[pathKey] = Array.from(segments).join(delimiter)
+  nextEnv.PATH = nextEnv[pathKey]
+  return nextEnv
+}
+
+export function buildTerminalEnv(platform: NodeJS.Platform, env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return buildTerminalEnvironment(env, platform)
 }
 
 export class PtyManager {

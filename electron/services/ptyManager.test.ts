@@ -1,7 +1,9 @@
 import fs from 'node:fs'
 import { describe, expect, it, vi } from 'vitest'
 import {
+  buildTerminalEnv,
   buildTerminalEnvironment,
+  getDefaultShell,
   PtyManager,
   resolveDefaultShell,
   resolveShellArgs,
@@ -41,6 +43,64 @@ class FakePtyHandle implements PtyHandle {
   }
 }
 
+describe('getDefaultShell', () => {
+  it('uses PowerShell by default on Windows when installed in the standard location', () => {
+    expect(getDefaultShell('win32', { WINDIR: 'C:\\Windows' }, (candidate) => candidate.includes('powershell.exe'))).toBe(
+      'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
+    )
+  })
+
+  it('prefers PowerShell 7 on Windows when available', () => {
+    expect(
+      getDefaultShell(
+        'win32',
+        { ProgramFiles: 'C:\\Program Files', SystemRoot: 'C:\\Windows' },
+        (candidate) => candidate.includes('pwsh.exe'),
+      ),
+    ).toBe('C:\\Program Files\\PowerShell\\7\\pwsh.exe')
+  })
+
+  it('falls back to PowerShell by command name if the standard Windows path is unavailable', () => {
+    expect(getDefaultShell('win32', { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' }, () => false)).toBe('powershell.exe')
+  })
+
+  it('prefers explicit SHELL on non-Windows', () => {
+    expect(getDefaultShell('linux', { SHELL: '/bin/zsh' }, () => true)).toBe('/bin/zsh')
+  })
+})
+
+describe('buildTerminalEnv', () => {
+  it('adds Windows-friendly agent bin paths to PATH', () => {
+    const env = buildTerminalEnv('win32', {
+      PATH: 'C:\\Windows\\System32',
+      USERPROFILE: 'C:\\Users\\Chris',
+      APPDATA: 'C:\\Users\\Chris\\AppData\\Roaming',
+      LOCALAPPDATA: 'C:\\Users\\Chris\\AppData\\Local',
+    })
+
+    expect(env.PATH).toContain('C:\\Users\\Chris\\AppData\\Roaming\\npm')
+    expect(env.PATH).toContain('C:\\Users\\Chris\\.opencode\\bin')
+    expect(env.PATH).toContain('C:\\Users\\Chris\\AppData\\Local\\Programs\\opencode\\bin')
+  })
+
+  it('preserves Windows Path casing when augmenting agent locations', () => {
+    const env = buildTerminalEnv('win32', {
+      Path: 'C:\\Windows\\System32',
+      USERPROFILE: 'C:\\Users\\Chris',
+      APPDATA: 'C:\\Users\\Chris\\AppData\\Roaming',
+    })
+
+    expect(env.Path).toContain('C:\\Users\\Chris\\AppData\\Roaming\\npm')
+    expect(env.PATH).toBe(env.Path)
+  })
+
+  it('preserves TERM on non-Windows shells', () => {
+    const env = buildTerminalEnv('linux', { PATH: '/usr/bin' })
+    expect(env.TERM).toBe('xterm-256color')
+    expect(env.PATH).toBe('/usr/bin')
+  })
+})
+
 describe('PtyManager', () => {
   it('uses the configured Unix shell when present', () => {
     expect(resolveDefaultShell({ SHELL: '/usr/bin/zsh' }, 'linux')).toBe('/usr/bin/zsh')
@@ -68,7 +128,7 @@ describe('PtyManager', () => {
         SystemRoot: 'C:\\Windows',
         COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
       }),
-    ).toBe('C:\\Windows\\System32\\cmd.exe')
+    ).toBe('powershell.exe')
     expect(resolveWindowsFallbackShell({ COMSPEC: 'C:\\Windows\\System32\\cmd.exe' })).toBe(
       'C:\\Windows\\System32\\cmd.exe',
     )
@@ -89,7 +149,7 @@ describe('PtyManager', () => {
       TERM: 'screen-256color',
       TEST_ENV: '1',
     })
-    expect(buildTerminalEnvironment({ TEST_ENV: '1' }, 'win32')).toEqual({ TEST_ENV: '1' })
+    expect(buildTerminalEnvironment({ TEST_ENV: '1' }, 'win32')).toEqual({ TEST_ENV: '1', PATH: '' })
   })
 
   it('creates, writes to, resizes, and closes PTY sessions', () => {
@@ -137,7 +197,7 @@ describe('PtyManager', () => {
     expect(exitListener).toHaveBeenCalledWith({ sessionId: exitedSession.sessionId, exitCode: 7 })
   })
 
-  it('passes Windows shell args without forcing TERM', () => {
+  it('passes Windows shell args while augmenting PATH', () => {
     const handle = new FakePtyHandle()
     const backend: PtyBackend = {
       spawn: vi.fn(() => handle),
@@ -146,7 +206,13 @@ describe('PtyManager', () => {
     const manager = new PtyManager({
       backend,
       defaultShell: 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe',
-      env: { TEST_ENV: '1' },
+      env: {
+        APPDATA: 'C:\\Users\\Chris\\AppData\\Roaming',
+        LOCALAPPDATA: 'C:\\Users\\Chris\\AppData\\Local',
+        PATH: 'C:\\Windows\\System32',
+        TEST_ENV: '1',
+        USERPROFILE: 'C:\\Users\\Chris',
+      },
       platform: 'win32',
     })
 
@@ -158,7 +224,10 @@ describe('PtyManager', () => {
       {
         cols: 100,
         cwd: 'C:\\workspace',
-        env: { TEST_ENV: '1' },
+        env: expect.objectContaining({
+          PATH: expect.stringContaining('C:\\Users\\Chris\\AppData\\Roaming\\npm'),
+          TEST_ENV: '1',
+        }),
         name: 'xterm-256color',
         rows: 30,
       },
@@ -216,14 +285,14 @@ describe('PtyManager', () => {
     expect(backend.spawn).toHaveBeenNthCalledWith(1, 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', ['-NoLogo'], {
       cols: 80,
       cwd: 'C:\\workspace',
-      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' },
+      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe', PATH: '' },
       name: 'xterm-256color',
       rows: 24,
     })
     expect(backend.spawn).toHaveBeenNthCalledWith(2, 'C:\\Windows\\System32\\cmd.exe', ['/Q'], {
       cols: 80,
       cwd: 'C:\\workspace',
-      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe' },
+      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe', PATH: '' },
       name: 'xterm-256color',
       rows: 24,
     })
