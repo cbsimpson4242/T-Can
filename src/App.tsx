@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
 import type { CanvasNode, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
 import { CommandPalette } from './components/CommandPalette'
@@ -23,6 +23,11 @@ interface SelectionBox {
   y: number
   width: number
   height: number
+}
+
+interface CanvasContextMenuState {
+  x: number
+  y: number
 }
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
@@ -77,6 +82,7 @@ function App() {
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT)
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
+  const [canvasContextMenu, setCanvasContextMenu] = useState<CanvasContextMenuState | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
   const [closingWorkspaceId, setClosingWorkspaceId] = useState<string | null>(null)
@@ -198,6 +204,34 @@ function App() {
       document.removeEventListener('visibilitychange', resetCtrlZoomModifier)
     }
   }, [])
+
+  useEffect(() => {
+    if (!canvasContextMenu) {
+      return
+    }
+
+    const closeContextMenu = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('.canvas-context-menu')) {
+        return
+      }
+      setCanvasContextMenu(null)
+    }
+
+    const closeContextMenuOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setCanvasContextMenu(null)
+      }
+    }
+
+    document.addEventListener('pointerdown', closeContextMenu)
+    window.addEventListener('keydown', closeContextMenuOnEscape)
+
+    return () => {
+      document.removeEventListener('pointerdown', closeContextMenu)
+      window.removeEventListener('keydown', closeContextMenuOnEscape)
+    }
+  }, [canvasContextMenu])
 
   useEffect(() => {
     let cancelled = false
@@ -666,6 +700,27 @@ function App() {
     },
   ]
 
+  function handleCanvasContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
+    event.preventDefault()
+
+    const target = event.target as HTMLElement | null
+    if (target?.closest('.canvas-context-menu')) {
+      return
+    }
+
+    const point = getCanvasPoint(event.clientX, event.clientY)
+    if (!point) {
+      return
+    }
+
+    setCanvasContextMenu(point)
+  }
+
+  function runCanvasContextCommand(command: () => void) {
+    setCanvasContextMenu(null)
+    command()
+  }
+
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     if (!isCtrlZoomActiveRef.current) {
       return
@@ -760,32 +815,6 @@ function App() {
       </header>
 
       <div className="app-shell__body">
-        <aside className="rail" aria-label="Tools">
-          <div className="rail__indicator" />
-          <button className="rail__button rail__button--active" type="button">
-            &gt;_
-          </button>
-          <button className="rail__button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
-            WK
-          </button>
-          <button
-            className="rail__button"
-            disabled={isCreatingTerminal || isBootstrapping}
-            onClick={() => void handleCreateTerminal()}
-            type="button"
-          >
-            +
-          </button>
-          <button
-            className="rail__button rail__button--danger"
-            disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
-            onClick={() => void handleKillAllTerminals()}
-            type="button"
-          >
-            !!
-          </button>
-        </aside>
-
         <FileExplorer
           entries={fileEntries}
           loading={isLoadingFiles}
@@ -802,6 +831,7 @@ function App() {
                 event.preventDefault()
               }
             }}
+            onContextMenu={handleCanvasContextMenu}
             onPointerDown={handleCanvasPointerDown}
             onWheel={handleWheel}
             ref={canvasRef}
@@ -874,6 +904,40 @@ function App() {
                   height: selectionBox.height,
                 }}
               />
+            )}
+            {canvasContextMenu && (
+              <div
+                className="canvas-context-menu"
+                onContextMenu={(event) => event.preventDefault()}
+                onPointerDown={(event) => event.stopPropagation()}
+                role="menu"
+                style={{ transform: `translate(${canvasContextMenu.x}px, ${canvasContextMenu.y}px)` }}
+              >
+                <button
+                  disabled={isOpeningWorkspace}
+                  onClick={() => runCanvasContextCommand(() => void handleOpenWorkspace())}
+                  role="menuitem"
+                  type="button"
+                >
+                  {isOpeningWorkspace ? 'Opening workspace...' : 'Add workspace'}
+                </button>
+                <button
+                  disabled={isCreatingTerminal || isBootstrapping}
+                  onClick={() => runCanvasContextCommand(() => void handleCreateTerminal())}
+                  role="menuitem"
+                  type="button"
+                >
+                  {isCreatingTerminal ? 'Creating terminal...' : 'New terminal'}
+                </button>
+                <button
+                  disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
+                  onClick={() => runCanvasContextCommand(() => void handleKillAllTerminals())}
+                  role="menuitem"
+                  type="button"
+                >
+                  {isKillingTerminals ? 'Killing terminals...' : `Kill all terminals (${nodes.length})`}
+                </button>
+              </div>
             )}
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">

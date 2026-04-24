@@ -58,6 +58,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   const resizeRafRef = useRef<number | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  const [isHovered, setIsHovered] = useState(false)
   const exitCode = useTerminalExit(sessionId)
 
   const sessionLabel = useMemo(() => workspacePath ?? 'Home shell', [workspacePath])
@@ -270,6 +271,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       terminalRef.current = null
       setIsReady(false)
       setIsFocused(false)
+      setIsHovered(false)
       terminal.dispose()
     }
   }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId])
@@ -309,7 +311,12 @@ export function TerminalNode(props: TerminalNodeProps) {
   }
 
   function handleTerminalHover() {
+    setIsHovered(true)
     focusTerminal()
+  }
+
+  function handleTerminalLeave() {
+    setIsHovered(false)
   }
 
   function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
@@ -326,7 +333,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   const className = [
     'terminal-node',
     selected ? 'terminal-node--selected' : null,
-    isFocused ? 'terminal-node--active' : null,
+    isFocused && isHovered ? 'terminal-node--active' : null,
   ]
     .filter(Boolean)
     .join(' ')
@@ -345,6 +352,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       onContextMenu={handleContextMenu}
       onPointerEnter={handleTerminalHover}
       onPointerMove={handleTerminalHover}
+      onPointerLeave={handleTerminalLeave}
       onPointerDown={(event) => {
         if (event.button === 1) {
           event.preventDefault()
