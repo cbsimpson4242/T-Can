@@ -7,6 +7,7 @@ import {
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
   rectanglesIntersect,
+  snapCanvasZoomViewport,
   zoomViewport,
 } from './layout'
 
@@ -44,6 +45,28 @@ describe('layout helpers', () => {
     expect(zoomed.scale).toBeGreaterThan(viewport.scale)
     expect(((400 - zoomed.x) / zoomed.scale).toFixed(4)).toBe(((400 - viewport.x) / viewport.scale).toFixed(4))
     expect(((300 - zoomed.y) / zoomed.scale).toFixed(4)).toBe(((300 - viewport.y) / viewport.scale).toFixed(4))
+  })
+
+  it('snaps canvas zoom between overview and normal around the pointer anchor', () => {
+    const viewport = { x: 100, y: 50, scale: 1 }
+
+    const zoomedOut = snapCanvasZoomViewport({
+      viewport,
+      deltaY: 100,
+      anchor: { x: 400, y: 300 },
+    })
+
+    expect(zoomedOut.scale).toBe(0.5)
+    expect(((400 - zoomedOut.x) / zoomedOut.scale).toFixed(4)).toBe(((400 - viewport.x) / viewport.scale).toFixed(4))
+    expect(((300 - zoomedOut.y) / zoomedOut.scale).toFixed(4)).toBe(((300 - viewport.y) / viewport.scale).toFixed(4))
+
+    expect(
+      snapCanvasZoomViewport({
+        viewport: zoomedOut,
+        deltaY: -100,
+        anchor: { x: 400, y: 300 },
+      }).scale,
+    ).toBe(1)
   })
 
   it('computes the canvas center in world coordinates', () => {

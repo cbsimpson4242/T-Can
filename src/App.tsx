@@ -13,7 +13,7 @@ import {
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
   rectanglesIntersect,
-  zoomViewport,
+  snapCanvasZoomViewport,
 } from './lib/layout'
 
 type ActiveNode = CanvasNode
@@ -73,7 +73,6 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
 
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
-  const isCtrlZoomActiveRef = useRef(false)
   const isRestoringWorkspaceRef = useRef(false)
   const [workspaces, setWorkspaces] = useState<PersistedWorkspace[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
@@ -96,7 +95,10 @@ function App() {
   const [fileEntries, setFileEntries] = useState<WorkspaceFileEntry[]>([])
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
-  const [sshTargetInput, setSshTargetInput] = useState('user@example.com')
+  const [sshHostInput, setSshHostInput] = useState('example.com')
+  const [sshUsernameInput, setSshUsernameInput] = useState('user')
+  const [sshPasswordInput, setSshPasswordInput] = useState('')
+  const [sshPasswords, setSshPasswords] = useState<Record<string, string>>({})
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
@@ -187,31 +189,12 @@ function App() {
         return
       }
 
-      if (event.key === 'Control') {
-        isCtrlZoomActiveRef.current = true
-      }
-    }
-
-    const handleKeyUp = (event: KeyboardEvent) => {
-      if (event.key === 'Control') {
-        isCtrlZoomActiveRef.current = false
-      }
-    }
-
-    const resetCtrlZoomModifier = () => {
-      isCtrlZoomActiveRef.current = false
     }
 
     window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
-    window.addEventListener('blur', resetCtrlZoomModifier)
-    document.addEventListener('visibilitychange', resetCtrlZoomModifier)
 
     return () => {
       window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
-      window.removeEventListener('blur', resetCtrlZoomModifier)
-      document.removeEventListener('visibilitychange', resetCtrlZoomModifier)
     }
   }, [])
 
@@ -362,24 +345,36 @@ function App() {
 
   async function handleSshDialogSubmit(event: ReactFormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const target = sshTargetInput.trim()
-    if (!target) {
+    const host = sshHostInput.trim()
+    const username = sshUsernameInput.trim()
+    const target = username ? `${username}@${host}` : host
+    if (!host) {
       return
     }
 
-    await handleOpenSshWorkspace(target)
+    await handleOpenSshWorkspace(target, sshPasswordInput)
   }
 
-  async function handleOpenSshWorkspace(target: string) {
+  async function handleOpenSshWorkspace(target: string, password = '') {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
         await getApi().saveLayout(layout)
       }
       const nextState = await getApi().openSshWorkspace(target)
+      setSshPasswords((current) => {
+        const next = { ...current }
+        if (password) {
+          next[target] = password
+        } else {
+          delete next[target]
+        }
+        return next
+      })
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
       setIsSshDialogOpen(false)
+      setSshPasswordInput('')
       await restoreWorkspaceLayout(getActiveWorkspace(nextState))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -813,7 +808,7 @@ function App() {
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null
-    if (!isCtrlZoomActiveRef.current || target?.closest('.terminal-node')) {
+    if (target?.closest('.terminal-node') || target?.closest('.editor-node') || target?.closest('.canvas-context-menu')) {
       return
     }
 
@@ -824,7 +819,7 @@ function App() {
     }
 
     setViewport((current) =>
-      zoomViewport({
+      snapCanvasZoomViewport({
         viewport: current,
         deltaY: event.deltaY,
         anchor: {
@@ -849,21 +844,46 @@ function App() {
               <strong>SSH WORKSPACE</strong>
               <button className="icon-button" disabled={isOpeningWorkspace} onClick={closeSshDialog} type="button">x</button>
             </header>
-            <label className="ssh-dialog__field">
-              <span>SSH target</span>
-              <input
-                autoFocus
-                disabled={isOpeningWorkspace}
-                onChange={(event) => setSshTargetInput(event.target.value)}
-                placeholder="user@example.com"
-                value={sshTargetInput}
-              />
-            </label>
+            <div className="ssh-dialog__fields">
+              <label className="ssh-dialog__field">
+                <span>Host</span>
+                <input
+                  autoFocus
+                  autoComplete="hostname"
+                  disabled={isOpeningWorkspace}
+                  onChange={(event) => setSshHostInput(event.target.value)}
+                  placeholder="example.com"
+                  value={sshHostInput}
+                />
+              </label>
+              <label className="ssh-dialog__field">
+                <span>Username</span>
+                <input
+                  autoComplete="username"
+                  disabled={isOpeningWorkspace}
+                  onChange={(event) => setSshUsernameInput(event.target.value)}
+                  placeholder="user"
+                  value={sshUsernameInput}
+                />
+              </label>
+              <label className="ssh-dialog__field">
+                <span>Password</span>
+                <input
+                  autoComplete="current-password"
+                  disabled={isOpeningWorkspace}
+                  onChange={(event) => setSshPasswordInput(event.target.value)}
+                  placeholder="Not saved"
+                  type="password"
+                  value={sshPasswordInput}
+                />
+              </label>
+              <p className="ssh-dialog__hint">Password is kept in memory for this app session only and is never saved to disk.</p>
+            </div>
             <footer className="ssh-dialog__actions">
               <button className="command-button" disabled={isOpeningWorkspace} onClick={closeSshDialog} type="button">
                 Cancel
               </button>
-              <button className="command-button" disabled={isOpeningWorkspace || sshTargetInput.trim().length === 0} type="submit">
+              <button className="command-button" disabled={isOpeningWorkspace || sshHostInput.trim().length === 0} type="submit">
                 {isOpeningWorkspace ? 'OPENING...' : 'Connect'}
               </button>
             </footer>
@@ -1013,6 +1033,7 @@ function App() {
                     selected={selectedNodeIdSet.has(node.id)}
                     sessionId={node.sessionId}
                     shell={node.shell}
+                    sshPassword={node.sshTarget ? sshPasswords[node.sshTarget] : undefined}
                     workspacePath={workspacePath}
                   />
                 )
@@ -1066,7 +1087,7 @@ function App() {
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
                 <p className="empty-state__title">NO ACTIVE TERMINALS</p>
-                <p className="empty-state__body">Add or switch workspaces, then spawn shells at the canvas center. Zoom only works while the keyboard Ctrl key is held.</p>
+                <p className="empty-state__body">Add or switch workspaces, then spawn shells at the canvas center. Use the mouse wheel on empty canvas space to toggle between normal and overview zoom.</p>
                 <div className="empty-state__actions">
                   <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
                     ADD WORKSPACE

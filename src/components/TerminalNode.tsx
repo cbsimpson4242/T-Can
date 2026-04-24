@@ -31,6 +31,7 @@ interface TerminalNodeProps {
   canvasRect: ProjectedNodeRect
   sessionId?: string
   shell?: string
+  sshPassword?: string
   workspacePath: string | null
   scale: number
   selected: boolean
@@ -50,11 +51,13 @@ function getShellLabel(shell?: string): string | null {
 }
 
 export function TerminalNode(props: TerminalNodeProps) {
-  const { node, canvasRect, sessionId, shell, workspacePath, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
+  const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const lastSentTerminalSizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const sshPasswordPromptBufferRef = useRef('')
+  const hasSentSshPasswordRef = useRef(false)
   const resizeTimerRef = useRef<number | null>(null)
   const resizeRafRef = useRef<number | null>(null)
   const [isReady, setIsReady] = useState(false)
@@ -231,13 +234,30 @@ export function TerminalNode(props: TerminalNodeProps) {
     helperTextarea?.addEventListener('blur', handleBlur)
 
     let disposed = false
+    sshPasswordPromptBufferRef.current = ''
+    hasSentSshPasswordRef.current = false
+
+    const maybeSendSshPassword = (data: string) => {
+      if (!sshPassword || hasSentSshPasswordRef.current) {
+        return
+      }
+
+      sshPasswordPromptBufferRef.current = `${sshPasswordPromptBufferRef.current}${data}`.slice(-300)
+      if (/password(?: for [^:\r\n]+)?\s*:\s*$/i.test(sshPasswordPromptBufferRef.current)) {
+        hasSentSshPasswordRef.current = true
+        void window.tcan.writeTerminal(sessionId, `${sshPassword}\r`)
+      }
+    }
+
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
       terminal.write(data)
+      maybeSendSshPassword(data)
     })
 
     void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
       if (!disposed && snapshot?.output) {
         terminal.write(snapshot.output)
+        maybeSendSshPassword(snapshot.output)
       }
     })
 
@@ -275,7 +295,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       setIsHovered(false)
       terminal.dispose()
     }
-  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId])
+  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId, sshPassword])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {

@@ -73,6 +73,31 @@ export function zoomViewport(args: {
   }
 }
 
+export const CANVAS_ZOOMED_OUT_SCALE = 0.5
+export const CANVAS_NORMAL_SCALE = 1
+
+export function snapCanvasZoomViewport(args: {
+  viewport: Viewport
+  deltaY: number
+  anchor: { x: number; y: number }
+}): Viewport {
+  const { viewport, deltaY, anchor } = args
+  const nextScale = deltaY > 0 ? CANVAS_ZOOMED_OUT_SCALE : CANVAS_NORMAL_SCALE
+
+  if (viewport.scale === nextScale) {
+    return viewport
+  }
+
+  const worldX = (anchor.x - viewport.x) / viewport.scale
+  const worldY = (anchor.y - viewport.y) / viewport.scale
+
+  return {
+    scale: nextScale,
+    x: anchor.x - worldX * nextScale,
+    y: anchor.y - worldY * nextScale,
+  }
+}
+
 export function getViewportCenterWorldPoint(viewport: Viewport, bounds: { width: number; height: number }) {
   return {
     x: (bounds.width / 2 - viewport.x) / viewport.scale,

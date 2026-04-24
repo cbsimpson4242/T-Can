@@ -715,10 +715,15 @@ button.topbar__tab:hover:not(:disabled),
   font-size: 0.72rem;
 }
 
+.ssh-dialog__fields {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
 .ssh-dialog__field {
   display: grid;
   gap: 0.5rem;
-  padding: 1rem;
 }
 
 .ssh-dialog__field span {
@@ -743,6 +748,13 @@ button.topbar__tab:hover:not(:disabled),
 .ssh-dialog__field input:focus {
   border-color: rgba(88, 242, 161, 0.9);
   box-shadow: 0 0 0 3px rgba(88, 242, 161, 0.08);
+}
+
+.ssh-dialog__hint {
+  margin: -0.15rem 0 0;
+  color: rgba(237, 242, 239, 0.48);
+  font-size: 0.72rem;
+  line-height: 1.45;
 }
 
 .ssh-dialog__actions {
