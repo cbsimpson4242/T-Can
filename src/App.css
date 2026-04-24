@@ -309,6 +309,7 @@ button.topbar__tab:hover:not(:disabled),
 
 .file-explorer__body {
   min-height: 0;
+  overscroll-behavior: contain;
   overflow: auto;
   padding: 0.45rem 0;
 }

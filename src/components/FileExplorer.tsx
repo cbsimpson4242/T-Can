@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useState, type CSSProperties, type WheelEvent } from 'react'
 import type { WorkspaceFileEntry } from '../../shared/types'
 
 interface FileExplorerProps {
@@ -9,16 +9,25 @@ interface FileExplorerProps {
   onRefresh(): void
 }
 
-function FileEntryView(props: { entry: WorkspaceFileEntry; depth: number; onOpenFile(relativePath: string): void }) {
-  const { entry, depth, onOpenFile } = props
+function FileEntryView(props: {
+  entry: WorkspaceFileEntry
+  depth: number
+  expandedPaths: Set<string>
+  onOpenFile(relativePath: string): void
+  onToggleDirectory(relativePath: string): void
+}) {
+  const { entry, depth, expandedPaths, onOpenFile, onToggleDirectory } = props
   const isDirectory = entry.type === 'directory'
+  const isExpanded = isDirectory && expandedPaths.has(entry.relativePath)
 
   return (
     <li className="file-explorer__item">
       <button
         className={isDirectory ? 'file-explorer__entry file-explorer__entry--directory' : 'file-explorer__entry'}
         onClick={() => {
-          if (!isDirectory) {
+          if (isDirectory) {
+            onToggleDirectory(entry.relativePath)
+          } else {
             onOpenFile(entry.relativePath)
           }
         }}
@@ -26,13 +35,20 @@ function FileEntryView(props: { entry: WorkspaceFileEntry; depth: number; onOpen
         title={entry.relativePath}
         type="button"
       >
-        <span className="file-explorer__icon">{isDirectory ? '▸' : '•'}</span>
+        <span className="file-explorer__icon">{isDirectory ? (isExpanded ? '▾' : '▸') : '•'}</span>
         <span className="file-explorer__name">{entry.name}</span>
       </button>
-      {isDirectory && entry.children && entry.children.length > 0 && (
+      {isExpanded && entry.children && entry.children.length > 0 && (
         <ul className="file-explorer__list">
           {entry.children.map((child) => (
-            <FileEntryView entry={child} key={child.relativePath} depth={depth + 1} onOpenFile={onOpenFile} />
+            <FileEntryView
+              entry={child}
+              expandedPaths={expandedPaths}
+              key={child.relativePath}
+              depth={depth + 1}
+              onOpenFile={onOpenFile}
+              onToggleDirectory={onToggleDirectory}
+            />
           ))}
         </ul>
       )}
@@ -42,6 +58,23 @@ function FileEntryView(props: { entry: WorkspaceFileEntry; depth: number; onOpen
 
 export function FileExplorer(props: FileExplorerProps) {
   const { entries, loading, workspaceName, onOpenFile, onRefresh } = props
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+
+  function toggleDirectory(relativePath: string) {
+    setExpandedPaths((current) => {
+      const next = new Set(current)
+      if (next.has(relativePath)) {
+        next.delete(relativePath)
+      } else {
+        next.add(relativePath)
+      }
+      return next
+    })
+  }
+
+  function stopExplorerWheelPropagation(event: WheelEvent<HTMLElement>) {
+    event.stopPropagation()
+  }
 
   return (
     <aside className="file-explorer" aria-label="Workspace files">
@@ -54,14 +87,21 @@ export function FileExplorer(props: FileExplorerProps) {
           ↻
         </button>
       </header>
-      <div className="file-explorer__body">
+      <div className="file-explorer__body" onWheel={stopExplorerWheelPropagation}>
         {loading && <p className="file-explorer__empty">Loading files...</p>}
         {!loading && !workspaceName && <p className="file-explorer__empty">Open a workspace to browse files.</p>}
         {!loading && workspaceName && entries.length === 0 && <p className="file-explorer__empty">No files found.</p>}
         {!loading && entries.length > 0 && (
           <ul className="file-explorer__list file-explorer__list--root">
             {entries.map((entry) => (
-              <FileEntryView entry={entry} key={entry.relativePath} depth={0} onOpenFile={onOpenFile} />
+              <FileEntryView
+                entry={entry}
+                expandedPaths={expandedPaths}
+                key={entry.relativePath}
+                depth={0}
+                onOpenFile={onOpenFile}
+                onToggleDirectory={toggleDirectory}
+              />
             ))}
           </ul>
         )}
