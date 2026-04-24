@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
 import type { CanvasNode, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
+import { CommandPalette } from './components/CommandPalette'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
@@ -83,6 +84,7 @@ function App() {
   const [isKillingTerminals, setIsKillingTerminals] = useState(false)
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [fileEntries, setFileEntries] = useState<WorkspaceFileEntry[]>([])
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
@@ -163,6 +165,12 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+        event.preventDefault()
+        setIsCommandPaletteOpen(true)
+        return
+      }
+
       if (event.key === 'Control') {
         isCtrlZoomActiveRef.current = true
       }
@@ -627,6 +635,37 @@ function App() {
     window.addEventListener('pointercancel', stop)
   }
 
+  const commandPaletteCommands = [
+    {
+      id: 'open-workspace',
+      label: 'Add workspace',
+      description: 'Open another project folder.',
+      disabled: isOpeningWorkspace,
+      run: () => void handleOpenWorkspace(),
+    },
+    {
+      id: 'new-terminal',
+      label: 'New terminal',
+      description: 'Create a terminal at the canvas center.',
+      disabled: isCreatingTerminal || isBootstrapping,
+      run: () => void handleCreateTerminal(),
+    },
+    {
+      id: 'refresh-files',
+      label: 'Refresh file explorer',
+      description: 'Reload the active workspace file tree.',
+      disabled: !activeWorkspaceId || isLoadingFiles,
+      run: () => void refreshFileTree(),
+    },
+    {
+      id: 'kill-terminals',
+      label: 'Kill all terminals',
+      description: 'Stop every running T-CAN terminal session.',
+      disabled: isKillingTerminals || nodes.length === 0,
+      run: () => void handleKillAllTerminals(),
+    },
+  ]
+
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     if (!isCtrlZoomActiveRef.current) {
       return
@@ -652,6 +691,11 @@ function App() {
 
   return (
     <div className="app-shell">
+      <CommandPalette
+        commands={commandPaletteCommands}
+        onClose={() => setIsCommandPaletteOpen(false)}
+        open={isCommandPaletteOpen}
+      />
       <header className="topbar">
         <div className="topbar__brand">T_CAN//STITCH</div>
         <nav className="topbar__nav" aria-label="Workspaces">
@@ -690,6 +734,9 @@ function App() {
           )}
         </nav>
         <div className="topbar__actions">
+          <button className="command-button" onClick={() => setIsCommandPaletteOpen(true)} type="button">
+            COMMANDS
+          </button>
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
