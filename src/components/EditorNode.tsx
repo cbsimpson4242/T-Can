@@ -117,6 +117,11 @@ export function EditorNode(props: EditorNodeProps) {
   return (
     <article className={className} onPointerDownCapture={onSelect} style={style}>
       <header className="editor-node__header" onPointerDown={onMoveStart}>
+        <div className="editor-node__lights" aria-hidden="true">
+          <span className="editor-node__light editor-node__light--red" />
+          <span className="editor-node__light editor-node__light--amber" />
+          <span className="editor-node__light editor-node__light--green" />
+        </div>
         <div className="editor-node__titleblock">
           <strong>{node.title.toUpperCase()}{isDirty ? ' *' : ''}</strong>
           <span>{node.filePath}</span>
@@ -136,9 +141,15 @@ export function EditorNode(props: EditorNodeProps) {
           language={language}
           onChange={(value) => setContent(value ?? '')}
           options={{
+            automaticLayout: true,
             fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
             fontSize: Math.max(10, 13 * scale),
             minimap: { enabled: false },
+            overviewRulerLanes: 0,
+            scrollbar: {
+              horizontal: 'hidden',
+              vertical: 'hidden',
+            },
             scrollBeyondLastLine: false,
             wordWrap: 'on',
           }}

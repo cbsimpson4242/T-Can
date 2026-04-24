@@ -556,7 +556,12 @@ function App() {
     }
 
     const target = event.target as HTMLElement | null
-    if (target?.closest('.terminal-node') || target?.closest('.canvas__hud') || target?.closest('button')) {
+    if (
+      target?.closest('.terminal-node') ||
+      target?.closest('.editor-node') ||
+      target?.closest('.canvas__hud') ||
+      target?.closest('button')
+    ) {
       return
     }
 
@@ -651,6 +656,7 @@ function App() {
     }
 
     event.preventDefault()
+    event.stopPropagation()
     const actionNodeIds = getActionNodeIds(nodeId)
     const actionNodeIdSet = new Set(actionNodeIds)
     setSelectedNodeIds(actionNodeIds)
