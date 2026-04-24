@@ -220,6 +220,7 @@ function resolveWorkspacePath(workspaceId: string, relativePath = ''): string {
 }
 
 const IGNORED_FILE_TREE_NAMES = new Set(['.git', 'node_modules', 'dist', 'dist-electron'])
+const MAX_FILE_TREE_DEPTH = 20
 
 function toRelativeWorkspacePath(workspaceRoot: string, absolutePath: string): string {
   return path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/')
@@ -245,7 +246,7 @@ function listWorkspaceDirectory(workspaceId: string, relativePath = '', depth = 
       name: entry.name,
       relativePath: entryRelativePath,
       type,
-      ...(entry.isDirectory() && depth < 2 ? { children: listWorkspaceDirectory(workspaceId, entryRelativePath, depth + 1) } : {}),
+      ...(entry.isDirectory() && depth < MAX_FILE_TREE_DEPTH ? { children: listWorkspaceDirectory(workspaceId, entryRelativePath, depth + 1) } : {}),
     }
   })
 }
