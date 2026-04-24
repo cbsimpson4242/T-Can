@@ -165,9 +165,24 @@ function createSshWorkspaceId(target: string): string {
   return `ssh://${target}`
 }
 
+function containsSshTargetSeparatorOrControlCharacter(value: string): boolean {
+  for (const character of value) {
+    if (/\s/.test(character)) {
+      return true
+    }
+
+    const codePoint = character.codePointAt(0)
+    if (codePoint === undefined || codePoint <= 0x1f || codePoint === 0x7f) {
+      return true
+    }
+  }
+
+  return false
+}
+
 function normalizeSshTarget(target: string): string {
   const normalized = target.trim()
-  if (!normalized || normalized.startsWith('-') || /[\s\0-\x1f\x7f]/.test(normalized)) {
+  if (!normalized || normalized.startsWith('-') || containsSshTargetSeparatorOrControlCharacter(normalized)) {
     throw new Error('Enter a single SSH target such as user@example.com or example.com')
   }
   return normalized

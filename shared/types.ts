@@ -1,4 +1,5 @@
 export type CanvasNodeType = 'terminal' | 'editor'
+export type NodeResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
 
 export interface CanvasNodeBase {
   id: string

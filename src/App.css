@@ -389,19 +389,103 @@ button.topbar__tab:hover:not(:disabled),
   text-align: center;
 }
 
-.editor-node__resize-handle {
+.editor-node__resize-handle,
+.terminal-node__resize-handle {
   position: absolute;
-  right: 0;
-  bottom: 0;
-  width: 18px;
-  height: 18px;
+  z-index: 5;
   padding: 0;
   border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.editor-node__resize-handle:hover,
+.terminal-node__resize-handle:hover {
+  background: rgba(0, 241, 253, 0.12);
+  box-shadow: none;
+  transform: none;
+}
+
+.editor-node__resize-handle--n,
+.terminal-node__resize-handle--n {
+  top: 0;
+  right: 18px;
+  left: 18px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.editor-node__resize-handle--e,
+.terminal-node__resize-handle--e {
+  top: 18px;
+  right: 0;
+  bottom: 18px;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.editor-node__resize-handle--s,
+.terminal-node__resize-handle--s {
+  right: 18px;
+  bottom: 0;
+  left: 18px;
+  height: 8px;
+  cursor: ns-resize;
+}
+
+.editor-node__resize-handle--w,
+.terminal-node__resize-handle--w {
+  top: 18px;
+  bottom: 18px;
+  left: 0;
+  width: 8px;
+  cursor: ew-resize;
+}
+
+.editor-node__resize-handle--ne,
+.editor-node__resize-handle--se,
+.editor-node__resize-handle--sw,
+.editor-node__resize-handle--nw,
+.terminal-node__resize-handle--ne,
+.terminal-node__resize-handle--se,
+.terminal-node__resize-handle--sw,
+.terminal-node__resize-handle--nw {
+  width: 18px;
+  height: 18px;
+}
+
+.editor-node__resize-handle--ne,
+.terminal-node__resize-handle--ne {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.editor-node__resize-handle--se,
+.terminal-node__resize-handle--se {
+  right: 0;
+  bottom: 0;
   background: linear-gradient(135deg, transparent 50%, rgba(0, 241, 253, 0.55) 50%);
   cursor: nwse-resize;
 }
 
-.command-palette {
+.editor-node__resize-handle--sw,
+.terminal-node__resize-handle--sw {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.editor-node__resize-handle--nw,
+.terminal-node__resize-handle--nw {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.command-palette,
+.ssh-dialog {
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -412,7 +496,8 @@ button.topbar__tab:hover:not(:disabled),
   backdrop-filter: blur(4px);
 }
 
-.command-palette__panel {
+.command-palette__panel,
+.ssh-dialog__panel {
   width: min(620px, calc(100vw - 2rem));
   overflow: hidden;
   border: 1px solid rgba(88, 242, 161, 0.34);
@@ -421,7 +506,9 @@ button.topbar__tab:hover:not(:disabled),
 }
 
 .command-palette__header,
-.command-palette__footer {
+.command-palette__footer,
+.ssh-dialog__header,
+.ssh-dialog__actions {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -459,6 +546,43 @@ button.topbar__tab:hover:not(:disabled),
 .command-palette__item span {
   color: rgba(237, 242, 239, 0.5);
   font-size: 0.72rem;
+}
+
+.ssh-dialog__field {
+  display: grid;
+  gap: 0.5rem;
+  padding: 1rem;
+}
+
+.ssh-dialog__field span {
+  color: rgba(237, 242, 239, 0.58);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ssh-dialog__field input {
+  width: 100%;
+  border: 1px solid rgba(88, 242, 161, 0.38);
+  border-radius: 6px;
+  background: rgba(5, 6, 7, 0.84);
+  color: var(--text);
+  font: inherit;
+  padding: 0.75rem 0.85rem;
+  outline: none;
+}
+
+.ssh-dialog__field input:focus {
+  border-color: rgba(88, 242, 161, 0.9);
+  box-shadow: 0 0 0 3px rgba(88, 242, 161, 0.08);
+}
+
+.ssh-dialog__actions {
+  justify-content: flex-end;
+  gap: 0.75rem;
+  border-top: 1px solid rgba(116, 139, 135, 0.16);
+  border-bottom: 0;
 }
 
 .canvas {
@@ -738,20 +862,6 @@ button.topbar__tab:hover:not(:disabled),
   letter-spacing: 0.12em;
 }
 
-.terminal-node__resize-handle {
-  position: absolute;
-  right: calc(4px * var(--node-scale));
-  bottom: calc(4px * var(--node-scale));
-  width: calc(16px * var(--node-scale));
-  height: calc(16px * var(--node-scale));
-  padding: 0;
-  border: 1px solid rgba(88, 242, 161, 0.44);
-  border-radius: 5px;
-  background:
-    linear-gradient(135deg, transparent 0 48%, rgba(88, 242, 161, 0.78) 48% 56%, transparent 56%),
-    #0a0a0a;
-  cursor: nwse-resize;
-}
 
 .icon-button {
   width: calc(28px * var(--node-scale));

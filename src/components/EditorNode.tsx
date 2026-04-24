@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
 import Editor from '@monaco-editor/react'
-import type { EditorNode as EditorNodeModel } from '../../shared/types'
+import type { EditorNode as EditorNodeModel, NodeResizeDirection } from '../../shared/types'
+
+const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
 interface ProjectedNodeRect {
   left: number
@@ -17,7 +19,7 @@ interface EditorNodeProps {
   selected: boolean
   onSelect(event: ReactPointerEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
-  onResizeStart(event: ReactPointerEvent<HTMLButtonElement>): void
+  onResizeStart(event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection): void
   onClose(): void
 }
 
@@ -145,7 +147,15 @@ export function EditorNode(props: EditorNodeProps) {
           value={content}
         />
       </div>
-      <button aria-label={`Resize ${node.title}`} className="editor-node__resize-handle" onPointerDown={onResizeStart} type="button" />
+      {RESIZE_DIRECTIONS.map((direction) => (
+        <button
+          aria-label={`Resize ${node.title} from ${direction}`}
+          className={`editor-node__resize-handle editor-node__resize-handle--${direction}`}
+          key={direction}
+          onPointerDown={(event) => onResizeStart(event, direction)}
+          type="button"
+        />
+      ))}
     </article>
   )
 }

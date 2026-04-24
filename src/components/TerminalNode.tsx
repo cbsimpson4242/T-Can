@@ -12,11 +12,12 @@ import {
 import { FitAddon } from 'xterm-addon-fit'
 import { Terminal } from 'xterm'
 import 'xterm/css/xterm.css'
-import type { ClipboardTextMode, TerminalNode as TerminalNodeModel } from '../../shared/types'
+import type { ClipboardTextMode, NodeResizeDirection, TerminalNode as TerminalNodeModel } from '../../shared/types'
 import { subscribeToTerminalOutput, subscribeToTerminalPaste, useTerminalExit } from '../lib/terminalEvents'
 
 const BASE_TERMINAL_FONT_SIZE = 13
 const PTY_RESIZE_DEBOUNCE_MS = 150
+const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
 interface ProjectedNodeRect {
   left: number
@@ -35,7 +36,7 @@ interface TerminalNodeProps {
   selected: boolean
   onSelect(event: ReactPointerEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
-  onResizeStart(event: ReactPointerEvent<HTMLButtonElement>): void
+  onResizeStart(event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection): void
   onClose(): void
 }
 
@@ -390,12 +391,15 @@ export function TerminalNode(props: TerminalNodeProps) {
         )}
         <div className="terminal-node__terminal" data-ready={isReady} ref={hostRef} />
       </div>
-      <button
-        aria-label={`Resize ${node.title}`}
-        className="terminal-node__resize-handle"
-        onPointerDown={onResizeStart}
-        type="button"
-      />
+      {RESIZE_DIRECTIONS.map((direction) => (
+        <button
+          aria-label={`Resize ${node.title} from ${direction}`}
+          className={`terminal-node__resize-handle terminal-node__resize-handle--${direction}`}
+          key={direction}
+          onPointerDown={(event) => onResizeStart(event, direction)}
+          type="button"
+        />
+      ))}
     </article>
   )
 }

@@ -52,7 +52,7 @@ export class TerminalDaemonClient {
   private readonly statePath: string
   private socket: net.Socket | null = null
   private state: DaemonState | null = null
-  private buffer = ''
+  private connectionPromise: Promise<void> | null = null
   private readonly pending = new Map<string, PendingRequest>()
   private readonly outputListeners = new Set<(event: TerminalOutputEvent) => void>()
   private readonly exitListeners = new Set<(event: TerminalExitEvent) => void>()
@@ -123,6 +123,20 @@ export class TerminalDaemonClient {
       return
     }
 
+    if (!this.connectionPromise) {
+      this.connectionPromise = this.connect().finally(() => {
+        this.connectionPromise = null
+      })
+    }
+
+    await this.connectionPromise
+  }
+
+  private async connect(): Promise<void> {
+    if (this.socket && !this.socket.destroyed) {
+      return
+    }
+
     const existingState = readState(this.statePath)
     if (existingState && (await this.tryConnect(existingState))) {
       return
@@ -159,6 +173,9 @@ export class TerminalDaemonClient {
     return new Promise((resolve) => {
       const socket = net.createConnection({ host: '127.0.0.1', port: state.port })
       socket.once('connect', () => {
+        if (this.socket && this.socket !== socket && !this.socket.destroyed) {
+          this.socket.destroy()
+        }
         this.socket = socket
         this.state = state
         this.installSocketHandlers(socket)
@@ -172,14 +189,16 @@ export class TerminalDaemonClient {
   }
 
   private installSocketHandlers(socket: net.Socket): void {
+    let buffer = ''
+
     socket.on('data', (chunk) => {
-      this.buffer += chunk.toString('utf8')
-      let newlineIndex = this.buffer.indexOf('\n')
+      buffer += chunk.toString('utf8')
+      let newlineIndex = buffer.indexOf('\n')
       while (newlineIndex >= 0) {
-        const line = this.buffer.slice(0, newlineIndex)
-        this.buffer = this.buffer.slice(newlineIndex + 1)
+        const line = buffer.slice(0, newlineIndex)
+        buffer = buffer.slice(newlineIndex + 1)
         this.handleLine(line)
-        newlineIndex = this.buffer.indexOf('\n')
+        newlineIndex = buffer.indexOf('\n')
       }
     })
 

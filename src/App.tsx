@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
+import type { CanvasNode, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
 import { CommandPalette } from './components/CommandPalette'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
@@ -95,6 +95,8 @@ function App() {
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [fileEntries, setFileEntries] = useState<WorkspaceFileEntry[]>([])
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
+  const [sshTargetInput, setSshTargetInput] = useState('user@example.com')
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
@@ -342,12 +344,33 @@ function App() {
     }
   }
 
-  async function handleOpenSshWorkspace() {
-    const target = window.prompt('SSH target', 'user@example.com')?.trim()
+  function openSshDialog() {
+    if (isOpeningWorkspace) {
+      return
+    }
+
+    setIsSshDialogOpen(true)
+  }
+
+  function closeSshDialog() {
+    if (isOpeningWorkspace) {
+      return
+    }
+
+    setIsSshDialogOpen(false)
+  }
+
+  async function handleSshDialogSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const target = sshTargetInput.trim()
     if (!target) {
       return
     }
 
+    await handleOpenSshWorkspace(target)
+  }
+
+  async function handleOpenSshWorkspace(target: string) {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
@@ -356,6 +379,7 @@ function App() {
       const nextState = await getApi().openSshWorkspace(target)
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
+      setIsSshDialogOpen(false)
       await restoreWorkspaceLayout(getActiveWorkspace(nextState))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -665,7 +689,7 @@ function App() {
     window.addEventListener('pointercancel', stop)
   }
 
-  function beginNodeResize(nodeId: string, event: ReactPointerEvent<HTMLButtonElement>) {
+  function beginNodeResize(nodeId: string, event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection) {
     if (event.button !== 0) {
       return
     }
@@ -680,21 +704,30 @@ function App() {
     let previousY = event.clientY
 
     const move = (pointerEvent: PointerEvent) => {
-      const deltaWidth = (pointerEvent.clientX - previousX) / viewport.scale
-      const deltaHeight = (pointerEvent.clientY - previousY) / viewport.scale
+      const deltaX = (pointerEvent.clientX - previousX) / viewport.scale
+      const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
 
       setNodes((current) =>
-        current.map((node) =>
-          actionNodeIdSet.has(node.id)
-            ? {
-                ...node,
-                ...clampNodeSize({
-                  width: node.width + deltaWidth,
-                  height: node.height + deltaHeight,
-                }),
-              }
-            : node,
-        ),
+        current.map((node) => {
+          if (!actionNodeIdSet.has(node.id)) {
+            return node
+          }
+
+          const widthDelta = direction.includes('e') ? deltaX : direction.includes('w') ? -deltaX : 0
+          const heightDelta = direction.includes('s') ? deltaY : direction.includes('n') ? -deltaY : 0
+          const size = clampNodeSize({
+            width: node.width + widthDelta,
+            height: node.height + heightDelta,
+          })
+
+          return {
+            ...node,
+            x: direction.includes('w') ? node.x + node.width - size.width : node.x,
+            y: direction.includes('n') ? node.y + node.height - size.height : node.y,
+            width: size.width,
+            height: size.height,
+          }
+        }),
       )
 
       previousX = pointerEvent.clientX
@@ -725,7 +758,7 @@ function App() {
       label: 'SSH workspace',
       description: 'Connect to a remote machine as a workspace.',
       disabled: isOpeningWorkspace,
-      run: () => void handleOpenSshWorkspace(),
+      run: () => openSshDialog(),
     },
     {
       id: 'new-terminal',
@@ -801,6 +834,34 @@ function App() {
         onClose={() => setIsCommandPaletteOpen(false)}
         open={isCommandPaletteOpen}
       />
+      {isSshDialogOpen && (
+        <div className="ssh-dialog" role="presentation" onMouseDown={closeSshDialog}>
+          <form className="ssh-dialog__panel" aria-label="Open SSH workspace" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => void handleSshDialogSubmit(event)}>
+            <header className="ssh-dialog__header">
+              <strong>SSH WORKSPACE</strong>
+              <button className="icon-button" disabled={isOpeningWorkspace} onClick={closeSshDialog} type="button">x</button>
+            </header>
+            <label className="ssh-dialog__field">
+              <span>SSH target</span>
+              <input
+                autoFocus
+                disabled={isOpeningWorkspace}
+                onChange={(event) => setSshTargetInput(event.target.value)}
+                placeholder="user@example.com"
+                value={sshTargetInput}
+              />
+            </label>
+            <footer className="ssh-dialog__actions">
+              <button className="command-button" disabled={isOpeningWorkspace} onClick={closeSshDialog} type="button">
+                Cancel
+              </button>
+              <button className="command-button" disabled={isOpeningWorkspace || sshTargetInput.trim().length === 0} type="submit">
+                {isOpeningWorkspace ? 'OPENING...' : 'Connect'}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
       <header className="topbar">
         <div className="topbar__brand">T_CAN//STITCH</div>
         <nav className="topbar__nav" aria-label="Workspaces">
@@ -845,7 +906,7 @@ function App() {
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
-          <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenSshWorkspace()} type="button">
+          <button className="command-button" disabled={isOpeningWorkspace} onClick={openSshDialog} type="button">
             SSH
           </button>
           <button
@@ -916,7 +977,7 @@ function App() {
                       node={node}
                       onClose={() => void removeNode(node.id)}
                       onMoveStart={(event) => beginNodeMove(node.id, event)}
-                      onResizeStart={(event) => beginNodeResize(node.id, event)}
+                      onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
                       onSelect={(event) => handleNodeSelect(node.id, event)}
                       scale={viewport.scale}
                       selected={selectedNodeIdSet.has(node.id)}
@@ -937,7 +998,7 @@ function App() {
                     node={node}
                     onClose={() => void removeNode(node.id)}
                     onMoveStart={(event) => beginNodeMove(node.id, event)}
-                    onResizeStart={(event) => beginNodeResize(node.id, event)}
+                    onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
                     onSelect={(event) => handleNodeSelect(node.id, event)}
                     scale={viewport.scale}
                     selected={selectedNodeIdSet.has(node.id)}
