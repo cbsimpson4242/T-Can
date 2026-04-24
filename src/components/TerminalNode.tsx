@@ -300,17 +300,6 @@ export function TerminalNode(props: TerminalNodeProps) {
     })
   }, [canvasRect.height, canvasRect.width, scale, sendTerminalResize, sessionId])
 
-  function handleAuxClick(event: ReactPointerEvent<HTMLElement>) {
-    if (event.button !== 1) {
-      return
-    }
-
-    event.preventDefault()
-    event.stopPropagation()
-    focusTerminal()
-    void pasteFromClipboard('selection', true)
-  }
-
   function handleTerminalHover() {
     setIsHovered(true)
     focusTerminal()
@@ -328,7 +317,7 @@ export function TerminalNode(props: TerminalNodeProps) {
     event.preventDefault()
     event.stopPropagation()
     focusTerminal()
-    void window.tcan.showTerminalContextMenu(sessionId)
+    void pasteFromClipboard('selection', true)
   }
 
   const className = [
@@ -349,18 +338,10 @@ export function TerminalNode(props: TerminalNodeProps) {
   return (
     <article
       className={className}
-      onAuxClick={handleAuxClick}
       onContextMenu={handleContextMenu}
       onPointerEnter={handleTerminalHover}
       onPointerMove={handleTerminalHover}
       onPointerLeave={handleTerminalLeave}
-      onPointerDown={(event) => {
-        if (event.button === 1) {
-          event.preventDefault()
-          event.stopPropagation()
-          focusTerminal()
-        }
-      }}
       onPointerDownCapture={onSelect}
       style={style}
     >

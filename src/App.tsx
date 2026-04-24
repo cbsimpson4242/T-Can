@@ -624,12 +624,13 @@ function App() {
   }
 
   function handleCanvasPointerDown(event: ReactPointerEvent<HTMLDivElement>) {
+    beginCanvasSelection(event)
+  }
+
+  function handleCanvasPointerDownCapture(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.button === 1) {
       beginCanvasPan(event)
-      return
     }
-
-    beginCanvasSelection(event)
   }
 
   function handleNodeSelect(nodeId: string, event: ReactPointerEvent<HTMLElement>) {
@@ -811,7 +812,8 @@ function App() {
   }
 
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
-    if (!isCtrlZoomActiveRef.current) {
+    const target = event.target as HTMLElement | null
+    if (!isCtrlZoomActiveRef.current || target?.closest('.terminal-node')) {
       return
     }
 
@@ -954,6 +956,7 @@ function App() {
             }}
             onContextMenu={handleCanvasContextMenu}
             onPointerDown={handleCanvasPointerDown}
+            onPointerDownCapture={handleCanvasPointerDownCapture}
             onWheel={handleWheel}
             ref={canvasRef}
             role="presentation"
