@@ -1,4 +1,4 @@
-import type { TerminalNode, Viewport } from '../../shared/types'
+import type { CanvasNode, EditorNode, TerminalNode, Viewport } from '../../shared/types'
 
 export interface CanvasRect {
   left: number
@@ -24,7 +24,26 @@ export function createTerminalNode(position: { x: number; y: number }): Terminal
 
   return {
     id,
+    type: 'terminal',
     title: 'Terminal',
+    x: position.x,
+    y: position.y,
+    width: DEFAULT_NODE_SIZE.width,
+    height: DEFAULT_NODE_SIZE.height,
+  }
+}
+
+export function createEditorNode(position: { x: number; y: number }, filePath: string): EditorNode {
+  const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `node-${Math.random().toString(36).slice(2, 11)}`
+  const title = filePath.split(/[/\\]/).pop() || filePath
+
+  return {
+    id,
+    type: 'editor',
+    title,
+    filePath,
     x: position.x,
     y: position.y,
     width: DEFAULT_NODE_SIZE.width,
@@ -77,7 +96,7 @@ export function createCanvasRect(start: { x: number; y: number }, end: { x: numb
   }
 }
 
-export function getNodeCanvasRect(node: TerminalNode, viewport: Viewport): CanvasRect {
+export function getNodeCanvasRect(node: CanvasNode, viewport: Viewport): CanvasRect {
   const left = viewport.x + node.x * viewport.scale
   const top = viewport.y + node.y * viewport.scale
 

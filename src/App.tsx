@@ -87,16 +87,33 @@ function App() {
 
   const layout = useMemo<PersistedLayout>(
     () => ({
-      nodes: nodes.map((node) => ({
-        id: node.id,
-        title: node.title,
-        x: node.x,
-        y: node.y,
-        width: node.width,
-        height: node.height,
-        sessionId: node.sessionId,
-        shell: node.shell,
-      })),
+      nodes: nodes.map((node) => {
+        if (node.type === 'editor') {
+          return {
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            filePath: node.filePath,
+            language: node.language,
+          }
+        }
+
+        return {
+          id: node.id,
+          type: node.type,
+          title: node.title,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+          sessionId: node.sessionId,
+          shell: node.shell,
+        }
+      }),
       viewport,
     }),
     [nodes, viewport],
@@ -117,7 +134,7 @@ function App() {
       setSelectedNodeIds([])
 
       const restoredNodes = await Promise.all(
-        workspace.layout.nodes.map(async (node) => {
+        workspace.layout.nodes.filter((node) => node.type !== 'editor').map(async (node) => {
           if (node.sessionId) {
             const existingSession = await api.getTerminalSession(node.sessionId)
             if (existingSession) {
@@ -126,7 +143,7 @@ function App() {
           }
 
           const session = await api.createTerminal({ cwd: workspace.path })
-          return { ...node, sessionId: session.sessionId, shell: session.shell }
+          return { ...node, type: 'terminal' as const, sessionId: session.sessionId, shell: session.shell }
         }),
       )
 
@@ -302,7 +319,7 @@ function App() {
   async function removeNode(nodeId: string) {
     setNodes((current) => {
       const node = current.find((entry) => entry.id === nodeId)
-      if (node?.sessionId) {
+      if (node?.type === 'terminal' && node.sessionId) {
         void getApi().closeTerminal(node.sessionId)
       }
       return current.filter((entry) => entry.id !== nodeId)
@@ -695,6 +712,10 @@ function App() {
             <div className="canvas__world">
               {nodes.map((node) => {
                 const canvasRect = getNodeCanvasRect(node, viewport)
+
+                if (node.type !== 'terminal') {
+                  return null
+                }
 
                 return (
                   <TerminalNode

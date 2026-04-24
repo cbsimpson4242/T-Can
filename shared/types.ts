@@ -1,13 +1,28 @@
-export interface TerminalNode {
+export type CanvasNodeType = 'terminal' | 'editor'
+
+export interface CanvasNodeBase {
   id: string
+  type?: CanvasNodeType
   title: string
   x: number
   y: number
   width: number
   height: number
+}
+
+export interface TerminalNode extends CanvasNodeBase {
+  type?: 'terminal'
   sessionId?: string
   shell?: string
 }
+
+export interface EditorNode extends CanvasNodeBase {
+  type: 'editor'
+  filePath: string
+  language?: string
+}
+
+export type CanvasNode = TerminalNode | EditorNode
 
 export interface Viewport {
   x: number
@@ -16,7 +31,7 @@ export interface Viewport {
 }
 
 export interface PersistedLayout {
-  nodes: TerminalNode[]
+  nodes: CanvasNode[]
   viewport: Viewport
 }
 

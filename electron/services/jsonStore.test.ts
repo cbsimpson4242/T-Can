@@ -67,6 +67,7 @@ describe('JsonStore', () => {
             nodes: [
               {
                 id: 'node-1',
+                type: 'terminal',
                 title: 'Terminal',
                 x: 1,
                 y: 2,

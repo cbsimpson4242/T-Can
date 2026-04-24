@@ -1,15 +1,28 @@
 import { z } from 'zod'
 
-export const terminalNodeSchema = z.object({
+const canvasNodeBaseSchema = z.object({
   id: z.string(),
+  type: z.enum(['terminal', 'editor']).default('terminal'),
   title: z.string(),
   x: z.number(),
   y: z.number(),
   width: z.number(),
   height: z.number(),
+})
+
+export const terminalNodeSchema = canvasNodeBaseSchema.extend({
+  type: z.literal('terminal').default('terminal'),
   sessionId: z.string().optional(),
   shell: z.string().optional(),
 })
+
+export const editorNodeSchema = canvasNodeBaseSchema.extend({
+  type: z.literal('editor'),
+  filePath: z.string(),
+  language: z.string().optional(),
+})
+
+export const canvasNodeSchema = z.union([terminalNodeSchema, editorNodeSchema])
 
 export const viewportSchema = z.object({
   x: z.number(),
@@ -18,7 +31,7 @@ export const viewportSchema = z.object({
 })
 
 export const persistedLayoutSchema = z.object({
-  nodes: z.array(terminalNodeSchema),
+  nodes: z.array(canvasNodeSchema),
   viewport: viewportSchema,
 })
 

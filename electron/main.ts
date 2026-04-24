@@ -234,6 +234,7 @@ function registerIpcHandlers(): void {
     }
 
     const closingSessionIds = closingWorkspace.layout.nodes
+      .filter((node) => node.type !== 'editor')
       .map((node) => node.sessionId)
       .filter((sessionId): sessionId is string => Boolean(sessionId))
 
