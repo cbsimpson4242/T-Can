@@ -1,3 +1,4 @@
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, type OpenDialogOptions } from 'electron'
@@ -8,6 +9,7 @@ import {
   IPC_CHANNELS,
   createTerminalRequestSchema,
   persistedLayoutSchema,
+  sshWorkspaceRequestSchema,
   terminalClipboardRequestSchema,
   terminalCloseSchema,
   terminalContextMenuSchema,
@@ -159,6 +161,31 @@ function createWorkspaceId(workspacePath: string): string {
   return workspacePath
 }
 
+function createSshWorkspaceId(target: string): string {
+  return `ssh://${target}`
+}
+
+function normalizeSshTarget(target: string): string {
+  const normalized = target.trim()
+  if (!normalized || normalized.startsWith('-') || /[\s\0-\x1f\x7f]/.test(normalized)) {
+    throw new Error('Enter a single SSH target such as user@example.com or example.com')
+  }
+  return normalized
+}
+
+function createSshTerminalNode(target: string) {
+  return {
+    id: crypto.randomUUID(),
+    type: 'terminal' as const,
+    title: `SSH ${target}`,
+    x: 80,
+    y: 80,
+    width: 680,
+    height: 420,
+    sshTarget: target,
+  }
+}
+
 function getWorkspaceOrThrow(workspaceId: string): PersistedWorkspace {
   const workspace = persistedState.workspaces.find((entry) => entry.id === workspaceId)
   if (!workspace) {
@@ -184,7 +211,12 @@ function toRelativeWorkspacePath(workspaceRoot: string, absolutePath: string): s
 }
 
 function listWorkspaceDirectory(workspaceId: string, relativePath = '', depth = 0): WorkspaceFileEntry[] {
-  const workspaceRoot = path.resolve(getWorkspaceOrThrow(workspaceId).path)
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  if (workspace.kind === 'ssh') {
+    return []
+  }
+
+  const workspaceRoot = path.resolve(workspace.path)
   const directoryPath = resolveWorkspacePath(workspaceId, relativePath)
   const entries = fs.readdirSync(directoryPath, { withFileTypes: true })
     .filter((entry) => !IGNORED_FILE_TREE_NAMES.has(entry.name))
@@ -278,6 +310,33 @@ function registerIpcHandlers(): void {
     })
   })
 
+  ipcMain.handle(IPC_CHANNELS.openSshWorkspace, async (_event, candidate) => {
+    const request = sshWorkspaceRequestSchema.parse(candidate)
+    const target = normalizeSshTarget(request.target)
+    const workspaceId = createSshWorkspaceId(target)
+    const existingWorkspace = persistedState.workspaces.find((workspace) => workspace.id === workspaceId)
+    const workspaces = existingWorkspace
+      ? persistedState.workspaces
+      : [
+          ...persistedState.workspaces,
+          {
+            id: workspaceId,
+            path: workspaceId,
+            kind: 'ssh' as const,
+            sshTarget: target,
+            layout: {
+              ...structuredClone(DEFAULT_LAYOUT),
+              nodes: [createSshTerminalNode(target)],
+            },
+          },
+        ]
+
+    return persistLayout({
+      activeWorkspaceId: workspaceId,
+      workspaces,
+    })
+  })
+
   ipcMain.handle(IPC_CHANNELS.switchWorkspace, async (_event, candidate) => {
     const request = workspaceRequestSchema.parse(candidate)
     const workspace = persistedState.workspaces.find((entry) => entry.id === request.workspaceId)
@@ -326,6 +385,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, async (_event, candidate) => {
     const request = workspaceFileRequestSchema.parse(candidate)
+    const workspace = getWorkspaceOrThrow(request.workspaceId)
+    if (workspace.kind === 'ssh') {
+      throw new Error('Remote SSH file browsing is not available yet')
+    }
     if (!request.relativePath) {
       throw new Error('Missing file path')
     }
@@ -334,6 +397,10 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle(IPC_CHANNELS.saveWorkspaceFile, async (_event, candidate) => {
     const request = workspaceFileSaveSchema.parse(candidate)
+    const workspace = getWorkspaceOrThrow(request.workspaceId)
+    if (workspace.kind === 'ssh') {
+      throw new Error('Remote SSH file editing is not available yet')
+    }
     return saveWorkspaceFile(request.workspaceId, request.relativePath, request.content)
   })
 

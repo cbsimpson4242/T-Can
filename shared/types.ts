@@ -14,6 +14,7 @@ export interface TerminalNode extends CanvasNodeBase {
   type?: 'terminal'
   sessionId?: string
   shell?: string
+  sshTarget?: string
 }
 
 export interface EditorNode extends CanvasNodeBase {
@@ -38,6 +39,8 @@ export interface PersistedLayout {
 export interface PersistedWorkspace {
   id: string
   path: string
+  kind?: 'local' | 'ssh'
+  sshTarget?: string
   layout: PersistedLayout
 }
 
@@ -54,6 +57,8 @@ export interface TerminalSessionInfo {
   sessionId: string
   cwd: string
   shell: string
+  command?: string
+  args?: string[]
   pid?: number
 }
 
@@ -64,6 +69,8 @@ export interface TerminalSessionSnapshot {
 
 export interface CreateTerminalRequest {
   cwd?: string | null
+  command?: string
+  args?: string[]
   cols?: number
   rows?: number
 }

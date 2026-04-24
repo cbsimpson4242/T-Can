@@ -3,7 +3,13 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
-import type { CreateTerminalRequest, TerminalExitEvent, TerminalOutputEvent, TerminalSessionInfo, TerminalSessionSnapshot } from '../../shared/types'
+import type {
+  CreateTerminalRequest,
+  TerminalExitEvent,
+  TerminalOutputEvent,
+  TerminalSessionInfo,
+  TerminalSessionSnapshot,
+} from '../../shared/types'
 
 interface DaemonState {
   port: number

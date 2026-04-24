@@ -61,7 +61,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   const [isHovered, setIsHovered] = useState(false)
   const exitCode = useTerminalExit(sessionId)
 
-  const sessionLabel = useMemo(() => workspacePath ?? 'Home shell', [workspacePath])
+  const sessionLabel = useMemo(() => (node.sshTarget ? `SSH ${node.sshTarget}` : workspacePath ?? 'Home shell'), [node.sshTarget, workspacePath])
   const shellLabel = useMemo(() => getShellLabel(shell), [shell])
 
   const focusTerminal = useCallback(() => {

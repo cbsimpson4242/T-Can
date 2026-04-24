@@ -34,6 +34,10 @@ const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const SELECTION_DRAG_THRESHOLD = 4
 
 function getWorkspaceName(workspacePath: string): string {
+  if (workspacePath.startsWith('ssh://')) {
+    return workspacePath.slice('ssh://'.length)
+  }
+
   return workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? workspacePath
 }
 
@@ -122,6 +126,7 @@ function App() {
           height: node.height,
           sessionId: node.sessionId,
           shell: node.shell,
+          sshTarget: node.sshTarget,
         }
       }),
       viewport,
@@ -156,8 +161,11 @@ function App() {
             }
           }
 
-          const session = await api.createTerminal({ cwd: workspace.path })
-          return { ...node, type: 'terminal' as const, sessionId: session.sessionId, shell: session.shell }
+          const sshTarget = workspace.kind === 'ssh' ? node.sshTarget ?? workspace.sshTarget : undefined
+          const session = sshTarget
+            ? await api.createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
+            : await api.createTerminal({ cwd: workspace.path })
+          return { ...node, type: 'terminal' as const, sessionId: session.sessionId, shell: session.shell, sshTarget }
         }),
       )
 
@@ -265,7 +273,7 @@ function App() {
   }, [])
 
   async function refreshFileTree() {
-    if (!activeWorkspaceId) {
+    if (!activeWorkspaceId || activeWorkspace?.kind === 'ssh') {
       setFileEntries([])
       return
     }
@@ -334,6 +342,29 @@ function App() {
     }
   }
 
+  async function handleOpenSshWorkspace() {
+    const target = window.prompt('SSH target', 'user@example.com')?.trim()
+    if (!target) {
+      return
+    }
+
+    setIsOpeningWorkspace(true)
+    try {
+      if (activeWorkspaceId) {
+        await getApi().saveLayout(layout)
+      }
+      const nextState = await getApi().openSshWorkspace(target)
+      setWorkspaces(nextState.workspaces)
+      setActiveWorkspaceId(nextState.activeWorkspaceId)
+      await restoreWorkspaceLayout(getActiveWorkspace(nextState))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to open SSH workspace.\n\n${message}`)
+    } finally {
+      setIsOpeningWorkspace(false)
+    }
+  }
+
   async function handleSwitchWorkspace(workspaceId: string) {
     if (workspaceId === activeWorkspaceId) {
       return
@@ -394,8 +425,20 @@ function App() {
     setIsCreatingTerminal(true)
     try {
       const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
-      const session = await getApi().createTerminal({ cwd: workspacePath })
-      setNodes((current) => [...current, { ...node, sessionId: session.sessionId, shell: session.shell }])
+      const sshTarget = activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined
+      const session = sshTarget
+        ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
+        : await getApi().createTerminal({ cwd: workspacePath })
+      setNodes((current) => [
+        ...current,
+        {
+          ...node,
+          title: sshTarget ? `SSH ${sshTarget}` : node.title,
+          sessionId: session.sessionId,
+          shell: session.shell,
+          sshTarget,
+        },
+      ])
       setSelectedNodeIds([node.id])
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -678,6 +721,13 @@ function App() {
       run: () => void handleOpenWorkspace(),
     },
     {
+      id: 'open-ssh-workspace',
+      label: 'SSH workspace',
+      description: 'Connect to a remote machine as a workspace.',
+      disabled: isOpeningWorkspace,
+      run: () => void handleOpenSshWorkspace(),
+    },
+    {
       id: 'new-terminal',
       label: 'New terminal',
       description: 'Create a terminal at the canvas center.',
@@ -795,6 +845,9 @@ function App() {
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
+          <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenSshWorkspace()} type="button">
+            SSH
+          </button>
           <button
             className="command-button"
             disabled={isCreatingTerminal || isBootstrapping}
@@ -820,6 +873,7 @@ function App() {
           loading={isLoadingFiles}
           onOpenFile={handleOpenFileFromExplorer}
           onRefresh={() => void refreshFileTree()}
+          remote={activeWorkspace?.kind === 'ssh'}
           workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
         />
 

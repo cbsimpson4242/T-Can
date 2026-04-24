@@ -4,6 +4,7 @@ import type { WorkspaceFileEntry } from '../../shared/types'
 interface FileExplorerProps {
   entries: WorkspaceFileEntry[]
   loading: boolean
+  remote?: boolean
   workspaceName: string | null
   onOpenFile(relativePath: string): void
   onRefresh(): void
@@ -57,7 +58,7 @@ function FileEntryView(props: {
 }
 
 export function FileExplorer(props: FileExplorerProps) {
-  const { entries, loading, workspaceName, onOpenFile, onRefresh } = props
+  const { entries, loading, remote = false, workspaceName, onOpenFile, onRefresh } = props
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
 
@@ -109,15 +110,16 @@ export function FileExplorer(props: FileExplorerProps) {
           <span className="file-explorer__eyebrow">EXPLORER</span>
           <strong>{workspaceName ?? 'NO WORKSPACE'}</strong>
         </div>
-        <button className="file-explorer__refresh" disabled={!workspaceName || loading} onClick={onRefresh} type="button">
+        <button className="file-explorer__refresh" disabled={!workspaceName || loading || remote} onClick={onRefresh} type="button">
           ↻
         </button>
       </header>
       <div className="file-explorer__body" onWheel={stopExplorerWheelPropagation} ref={bodyRef}>
         {loading && <p className="file-explorer__empty">Loading files...</p>}
         {!loading && !workspaceName && <p className="file-explorer__empty">Open a workspace to browse files.</p>}
-        {!loading && workspaceName && entries.length === 0 && <p className="file-explorer__empty">No files found.</p>}
-        {!loading && entries.length > 0 && (
+        {!loading && workspaceName && remote && <p className="file-explorer__empty">Remote SSH file browsing is not available yet.</p>}
+        {!loading && workspaceName && !remote && entries.length === 0 && <p className="file-explorer__empty">No files found.</p>}
+        {!loading && !remote && entries.length > 0 && (
           <ul className="file-explorer__list file-explorer__list--root">
             {entries.map((entry) => (
               <FileEntryView

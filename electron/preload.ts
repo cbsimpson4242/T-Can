@@ -10,6 +10,9 @@ const api: TCanApi = {
   openWorkspace() {
     return ipcRenderer.invoke(IPC_CHANNELS.openWorkspace)
   },
+  openSshWorkspace(target) {
+    return ipcRenderer.invoke(IPC_CHANNELS.openSshWorkspace, { target })
+  },
   switchWorkspace(workspaceId) {
     return ipcRenderer.invoke(IPC_CHANNELS.switchWorkspace, { workspaceId })
   },
