@@ -16,6 +16,8 @@ export interface TerminalNode extends CanvasNodeBase {
   sessionId?: string
   shell?: string
   sshTarget?: string
+  cwd?: string
+  taskName?: string
 }
 
 export interface EditorTab {
@@ -104,17 +106,6 @@ export interface WorkspaceFileMutationResult {
   entry?: WorkspaceFileEntry
 }
 
-export interface WorkspaceTextSearchMatch {
-  line: number
-  column: number
-  preview: string
-}
-
-export interface WorkspaceTextSearchResult {
-  relativePath: string
-  matches: WorkspaceTextSearchMatch[]
-}
-
 export type WorkspaceSymbolKind =
   | 'class'
   | 'function'
@@ -156,4 +147,67 @@ export interface TerminalExitEvent {
 export interface TerminalPasteEvent {
   sessionId: string
   data: string
+}
+
+export interface WorkspaceTaskScript {
+  name: string
+  command: string
+  packageManager: 'npm' | 'yarn' | 'pnpm'
+  cwd: string
+}
+
+export interface ProblemMatch {
+  id: string
+  source: string
+  message: string
+  relativePath: string
+  line: number
+  column?: number
+  severity: 'error' | 'warning' | 'info'
+  sessionId?: string
+}
+
+export interface GitStatusEntry {
+  path: string
+  indexStatus: string
+  workTreeStatus: string
+  staged: boolean
+  unstaged: boolean
+  untracked: boolean
+  conflicted: boolean
+}
+
+export interface GitBranchSummary {
+  current: string | null
+  branches: string[]
+}
+
+export interface GitDiffLine {
+  type: 'context' | 'add' | 'delete' | 'hunk'
+  content: string
+  oldLine?: number
+  newLine?: number
+}
+
+export interface GitFileDiff {
+  path: string
+  staged: boolean
+  binary: boolean
+  lines: GitDiffLine[]
+  raw: string
+}
+
+export interface GitCommitSummary {
+  hash: string
+  author: string
+  date: string
+  subject: string
+}
+
+export interface GitBlameLine {
+  line: number
+  commit: string
+  author: string
+  summary: string
+  content: string
 }

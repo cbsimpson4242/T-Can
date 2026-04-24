@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
@@ -8,6 +9,9 @@ import { TerminalDaemonClient } from './services/terminalDaemonClient'
 import {
   IPC_CHANNELS,
   createTerminalRequestSchema,
+  gitBranchRequestSchema,
+  gitCommitRequestSchema,
+  gitFileRequestSchema,
   persistedLayoutSchema,
   sshWorkspaceRequestSchema,
   terminalClipboardRequestSchema,
@@ -21,12 +25,8 @@ import {
   workspaceFileSaveSchema,
   workspacePathRenameSchema,
   workspaceRequestSchema,
-  workspaceSymbolRequestSchema,
-  workspaceTextReplaceSchema,
-  workspaceTextSearchSchema,
 } from '../shared/ipc'
-import { extractFileSymbols } from '../shared/languageIntelligence'
-import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceSymbol, WorkspaceTextSearchResult } from '../shared/types'
+import type { GitBlameLine, GitBranchSummary, GitCommitSummary, GitDiffLine, GitFileDiff, GitStatusEntry, PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTaskScript } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
@@ -354,100 +354,116 @@ function duplicateWorkspacePath(workspaceId: string, relativePath: string): Work
   return { relativePath: duplicateRelativePath, entry: getWorkspaceFileEntry(workspaceId, duplicateRelativePath) }
 }
 
-function isLikelyTextFile(filePath: string): boolean {
-  const stat = fs.statSync(filePath)
-  if (!stat.isFile() || stat.size > 1024 * 1024) {
-    return false
-  }
-  const sample = fs.readFileSync(filePath).subarray(0, 4096)
-  return !sample.includes(0)
-}
-
-function searchFileText(relativePath: string, content: string, query: string): WorkspaceTextSearchResult | null {
-  const matches: WorkspaceTextSearchResult['matches'] = []
-  const lines = content.split(/\r?\n/)
-  lines.forEach((line, index) => {
-    let fromIndex = 0
-    while (matches.length < 100) {
-      const column = line.indexOf(query, fromIndex)
-      if (column === -1) {
-        break
-      }
-      matches.push({
-        line: index + 1,
-        column: column + 1,
-        preview: line.trim().slice(0, 240),
-      })
-      fromIndex = column + Math.max(query.length, 1)
-    }
-  })
-  return matches.length ? { relativePath, matches } : null
-}
-
-function walkWorkspaceTextFiles(workspaceId: string, relativePath = '', results: string[] = []): string[] {
-  const directoryPath = resolveWorkspacePath(workspaceId, relativePath)
-  for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
-    if (IGNORED_FILE_TREE_NAMES.has(entry.name)) {
-      continue
-    }
-    const childRelativePath = path.posix.join(relativePath.replace(/\\/g, '/'), entry.name)
-    const childPath = resolveWorkspacePath(workspaceId, childRelativePath)
-    if (entry.isDirectory()) {
-      walkWorkspaceTextFiles(workspaceId, childRelativePath, results)
-    } else if (isLikelyTextFile(childPath)) {
-      results.push(childRelativePath)
-    }
-  }
-  return results
-}
-
-function searchWorkspaceText(workspaceId: string, query: string): WorkspaceTextSearchResult[] {
+function listWorkspaceTasks(workspaceId: string): WorkspaceTaskScript[] {
   assertLocalWorkspace(workspaceId)
-  if (!query) {
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  const packageJsonPath = path.join(workspace.path, 'package.json')
+  if (!fs.existsSync(packageJsonPath)) {
     return []
   }
-  const results: WorkspaceTextSearchResult[] = []
-  for (const relativePath of walkWorkspaceTextFiles(workspaceId)) {
-    const filePath = resolveWorkspacePath(workspaceId, relativePath)
-    const result = searchFileText(relativePath, fs.readFileSync(filePath, 'utf8'), query)
-    if (result) {
-      results.push(result)
-    }
-    if (results.length >= 200) {
-      break
-    }
-  }
-  return results
+
+  const parsed = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8')) as { scripts?: Record<string, string> }
+  const scripts = parsed.scripts ?? {}
+  const packageManager: WorkspaceTaskScript['packageManager'] = fs.existsSync(path.join(workspace.path, 'pnpm-lock.yaml'))
+    ? 'pnpm'
+    : fs.existsSync(path.join(workspace.path, 'yarn.lock'))
+      ? 'yarn'
+      : 'npm'
+
+  return Object.entries(scripts).map(([name, command]) => ({ name, command, packageManager, cwd: workspace.path }))
 }
 
-function replaceWorkspaceText(workspaceId: string, query: string, replacement: string): WorkspaceTextSearchResult[] {
-  const matches = searchWorkspaceText(workspaceId, query)
-  for (const result of matches) {
-    const filePath = resolveWorkspacePath(workspaceId, result.relativePath)
-    const content = fs.readFileSync(filePath, 'utf8')
-    fs.writeFileSync(filePath, content.split(query).join(replacement), 'utf8')
+function runGit(workspaceId: string, args: string[]): Promise<string> {
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  if (workspace.kind === 'ssh') {
+    throw new Error('Git integration is not available for SSH workspaces yet')
   }
-  return matches
+
+  return new Promise((resolve, reject) => {
+    execFile('git', args, { cwd: workspace.path, windowsHide: true, maxBuffer: 20 * 1024 * 1024 }, (error, stdout, stderr) => {
+      if (error) {
+        reject(new Error((stderr || stdout || error.message).trim()))
+        return
+      }
+      resolve(stdout)
+    })
+  })
 }
 
-function listWorkspaceSymbols(workspaceId: string, query = ''): WorkspaceSymbol[] {
-  assertLocalWorkspace(workspaceId)
-  const normalizedQuery = query.trim().toLowerCase()
-  const symbols: WorkspaceSymbol[] = []
+function parseGitStatus(output: string): GitStatusEntry[] {
+  return output.split(/\r?\n/).filter(Boolean).map((line) => {
+    const indexStatus = line[0] ?? ' '
+    const workTreeStatus = line[1] ?? ' '
+    const rawPath = line.slice(3)
+    const filePath = rawPath.includes(' -> ') ? rawPath.split(' -> ').at(-1) ?? rawPath : rawPath
+    return {
+      path: filePath,
+      indexStatus,
+      workTreeStatus,
+      staged: indexStatus !== ' ' && indexStatus !== '?',
+      unstaged: workTreeStatus !== ' ',
+      untracked: indexStatus === '?' && workTreeStatus === '?',
+      conflicted: indexStatus === 'U' || workTreeStatus === 'U' || indexStatus === 'A' && workTreeStatus === 'A' || indexStatus === 'D' && workTreeStatus === 'D',
+    }
+  })
+}
 
-  for (const relativePath of walkWorkspaceTextFiles(workspaceId)) {
-    const filePath = resolveWorkspacePath(workspaceId, relativePath)
-    for (const symbol of extractFileSymbols(relativePath, fs.readFileSync(filePath, 'utf8'))) {
-      if (!normalizedQuery || symbol.name.toLowerCase().includes(normalizedQuery) || symbol.relativePath.toLowerCase().includes(normalizedQuery)) {
-        symbols.push(symbol)
-      }
-      if (symbols.length >= 500) {
-        return symbols
-      }
+async function getGitBranches(workspaceId: string): Promise<GitBranchSummary> {
+  const output = await runGit(workspaceId, ['branch', '--format=%(refname:short)%(if)%(HEAD)%(then) *%(end)'])
+  const branches = output.split(/\r?\n/).filter(Boolean)
+  const current = branches.find((branch) => branch.endsWith(' *'))?.replace(/ \*$/, '') ?? null
+  return { current, branches: branches.map((branch) => branch.replace(/ \*$/, '')) }
+}
+
+function parseGitDiff(pathName: string, staged: boolean, raw: string): GitFileDiff {
+  const lines: GitDiffLine[] = []
+  let oldLine = 0
+  let newLine = 0
+  let binary = false
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (line.startsWith('Binary files')) {
+      binary = true
+    }
+    const hunk = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line)
+    if (hunk) {
+      oldLine = Number(hunk[1])
+      newLine = Number(hunk[2])
+      lines.push({ type: 'hunk', content: line })
+      continue
+    }
+    if (line.startsWith('+') && !line.startsWith('+++')) {
+      lines.push({ type: 'add', content: line, newLine })
+      newLine += 1
+      continue
+    }
+    if (line.startsWith('-') && !line.startsWith('---')) {
+      lines.push({ type: 'delete', content: line, oldLine })
+      oldLine += 1
+      continue
+    }
+    lines.push({ type: 'context', content: line, oldLine, newLine })
+    if (!line.startsWith('diff --git') && !line.startsWith('index ') && !line.startsWith('---') && !line.startsWith('+++')) {
+      oldLine += 1
+      newLine += 1
     }
   }
 
-  return symbols.sort((a, b) => a.name.localeCompare(b.name) || a.relativePath.localeCompare(b.relativePath))
+  return { path: pathName, staged, binary, lines, raw }
+}
+
+function parseGitHistory(output: string): GitCommitSummary[] {
+  return output.split(/\r?\n/).filter(Boolean).map((line) => {
+    const [hash = '', author = '', date = '', subject = ''] = line.split('\u001f')
+    return { hash, author, date, subject }
+  })
+}
+
+function parseGitBlame(output: string): GitBlameLine[] {
+  return output.split(/\r?\n/).filter(Boolean).map((line, index) => {
+    const [commit = '', author = '', summary = '', content = ''] = line.split('\u001f')
+    return { line: index + 1, commit, author, summary, content }
+  })
 }
 
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
@@ -642,19 +658,94 @@ function registerIpcHandlers(): void {
     shell.showItemInFolder(resolveWorkspacePath(request.workspaceId, request.relativePath))
   })
 
-  ipcMain.handle(IPC_CHANNELS.searchWorkspaceText, async (_event, candidate) => {
-    const request = workspaceTextSearchSchema.parse(candidate)
-    return searchWorkspaceText(request.workspaceId, request.query)
+  ipcMain.handle(IPC_CHANNELS.listWorkspaceTasks, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    return listWorkspaceTasks(request.workspaceId)
   })
 
-  ipcMain.handle(IPC_CHANNELS.replaceWorkspaceText, async (_event, candidate) => {
-    const request = workspaceTextReplaceSchema.parse(candidate)
-    return replaceWorkspaceText(request.workspaceId, request.query, request.replacement)
+  ipcMain.handle(IPC_CHANNELS.getGitStatus, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    return parseGitStatus(await runGit(request.workspaceId, ['status', '--porcelain=v1']))
   })
 
-  ipcMain.handle(IPC_CHANNELS.listWorkspaceSymbols, async (_event, candidate) => {
-    const request = workspaceSymbolRequestSchema.parse(candidate)
-    return listWorkspaceSymbols(request.workspaceId, request.query)
+  ipcMain.handle(IPC_CHANNELS.getGitBranches, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    return getGitBranches(request.workspaceId)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitStage, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['add', '--', request.filePath])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitUnstage, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['restore', '--staged', '--', request.filePath])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitDiscard, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    const status = parseGitStatus(await runGit(request.workspaceId, ['status', '--porcelain=v1', '--', request.filePath]))[0]
+    if (status?.untracked) {
+      fs.rmSync(resolveWorkspacePath(request.workspaceId, request.filePath), { recursive: true, force: true })
+      return
+    }
+    await runGit(request.workspaceId, request.staged ? ['restore', '--staged', '--worktree', '--', request.filePath] : ['restore', '--worktree', '--', request.filePath])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitCommit, async (_event, candidate) => {
+    const request = gitCommitRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['commit', '-m', request.message])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitPush, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['push'])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitPull, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['pull', '--ff-only'])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitFetch, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['fetch', '--all', '--prune'])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitCheckoutBranch, async (_event, candidate) => {
+    const request = gitBranchRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['checkout', request.branch])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitCreateBranch, async (_event, candidate) => {
+    const request = gitBranchRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['checkout', '-b', request.branch])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitDeleteBranch, async (_event, candidate) => {
+    const request = gitBranchRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['branch', '-d', request.branch])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getGitFileDiff, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    const args = request.staged ? ['diff', '--staged', '--', request.filePath] : ['diff', '--', request.filePath]
+    return parseGitDiff(request.filePath, request.staged, await runGit(request.workspaceId, args))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getGitFileHistory, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    const output = await runGit(request.workspaceId, ['log', '--date=short', '--pretty=format:%h%x1f%an%x1f%ad%x1f%s', '--', request.filePath])
+    return parseGitHistory(output)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.getGitBlame, async (_event, candidate) => {
+    const request = gitFileRequestSchema.parse(candidate)
+    const output = await runGit(request.workspaceId, ['blame', '--line-porcelain', '--', request.filePath])
+    const lines = output.split(/\r?\n/)
+    const compact = lines.flatMap((line, index) => line.startsWith('\t') ? [`${lines[index - 10]?.split(' ')[0] ?? ''}\u001f${lines[index - 4]?.replace('author ', '') ?? ''}\u001f${lines[index - 1]?.replace('summary ', '') ?? ''}\u001f${line.slice(1)}`] : [])
+    return parseGitBlame(compact.join('\n'))
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {

@@ -46,14 +46,8 @@ const api: TCanApi = {
   revealWorkspacePath(workspaceId, relativePath) {
     return ipcRenderer.invoke(IPC_CHANNELS.revealWorkspacePath, { workspaceId, relativePath })
   },
-  searchWorkspaceText(workspaceId, query) {
-    return ipcRenderer.invoke(IPC_CHANNELS.searchWorkspaceText, { workspaceId, query })
-  },
-  replaceWorkspaceText(workspaceId, query, replacement) {
-    return ipcRenderer.invoke(IPC_CHANNELS.replaceWorkspaceText, { workspaceId, query, replacement })
-  },
-  listWorkspaceSymbols(workspaceId, query = '') {
-    return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceSymbols, { workspaceId, query })
+  listWorkspaceTasks(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceTasks, { workspaceId })
   },
   saveLayout(layout) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
@@ -78,6 +72,51 @@ const api: TCanApi = {
   },
   closeAllTerminals() {
     return ipcRenderer.invoke(IPC_CHANNELS.closeAllTerminals)
+  },
+  getGitStatus(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGitStatus, { workspaceId })
+  },
+  getGitBranches(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGitBranches, { workspaceId })
+  },
+  gitStage(workspaceId, filePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitStage, { workspaceId, filePath })
+  },
+  gitUnstage(workspaceId, filePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitUnstage, { workspaceId, filePath })
+  },
+  gitDiscard(workspaceId, filePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitDiscard, { workspaceId, filePath })
+  },
+  gitCommit(workspaceId, message) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitCommit, { workspaceId, message })
+  },
+  gitPush(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitPush, { workspaceId })
+  },
+  gitPull(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitPull, { workspaceId })
+  },
+  gitFetch(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitFetch, { workspaceId })
+  },
+  gitCheckoutBranch(workspaceId, branch) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitCheckoutBranch, { workspaceId, branch })
+  },
+  gitCreateBranch(workspaceId, branch) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitCreateBranch, { workspaceId, branch })
+  },
+  gitDeleteBranch(workspaceId, branch) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitDeleteBranch, { workspaceId, branch })
+  },
+  getGitFileDiff(workspaceId, filePath, staged = false) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGitFileDiff, { workspaceId, filePath, staged })
+  },
+  getGitFileHistory(workspaceId, filePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGitFileHistory, { workspaceId, filePath })
+  },
+  getGitBlame(workspaceId, filePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getGitBlame, { workspaceId, filePath })
   },
   readClipboardText(mode: ClipboardTextMode = 'clipboard') {
     try {

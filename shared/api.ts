@@ -2,6 +2,11 @@ import type {
   ClipboardTextMode,
   CreateTerminalRequest,
   PersistedAppState,
+  GitBlameLine,
+  GitBranchSummary,
+  GitCommitSummary,
+  GitFileDiff,
+  GitStatusEntry,
   PersistedLayout,
   TerminalClipboardRequest,
   TerminalExitEvent,
@@ -12,8 +17,7 @@ import type {
   WorkspaceFileEntry,
   WorkspaceFileMutationResult,
   WorkspaceFileReadResult,
-  WorkspaceSymbol,
-  WorkspaceTextSearchResult,
+  WorkspaceTaskScript,
 } from './types'
 
 export interface TCanApi {
@@ -31,9 +35,7 @@ export interface TCanApi {
   duplicateWorkspacePath(workspaceId: string, relativePath: string): Promise<WorkspaceFileMutationResult>
   copyWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
   revealWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
-  searchWorkspaceText(workspaceId: string, query: string): Promise<WorkspaceTextSearchResult[]>
-  replaceWorkspaceText(workspaceId: string, query: string, replacement: string): Promise<WorkspaceTextSearchResult[]>
-  listWorkspaceSymbols(workspaceId: string, query?: string): Promise<WorkspaceSymbol[]>
+  listWorkspaceTasks(workspaceId: string): Promise<WorkspaceTaskScript[]>
   saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>
@@ -42,6 +44,21 @@ export interface TCanApi {
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>
   closeTerminal(sessionId: string): Promise<void>
   closeAllTerminals(): Promise<void>
+  getGitStatus(workspaceId: string): Promise<GitStatusEntry[]>
+  getGitBranches(workspaceId: string): Promise<GitBranchSummary>
+  gitStage(workspaceId: string, filePath: string): Promise<void>
+  gitUnstage(workspaceId: string, filePath: string): Promise<void>
+  gitDiscard(workspaceId: string, filePath: string): Promise<void>
+  gitCommit(workspaceId: string, message: string): Promise<void>
+  gitPush(workspaceId: string): Promise<void>
+  gitPull(workspaceId: string): Promise<void>
+  gitFetch(workspaceId: string): Promise<void>
+  gitCheckoutBranch(workspaceId: string, branch: string): Promise<void>
+  gitCreateBranch(workspaceId: string, branch: string): Promise<void>
+  gitDeleteBranch(workspaceId: string, branch: string): Promise<void>
+  getGitFileDiff(workspaceId: string, filePath: string, staged?: boolean): Promise<GitFileDiff>
+  getGitFileHistory(workspaceId: string, filePath: string): Promise<GitCommitSummary[]>
+  getGitBlame(workspaceId: string, filePath: string): Promise<GitBlameLine[]>
   readClipboardText(mode?: ClipboardTextMode): Promise<string>
   readClipboardForTerminal(request: TerminalClipboardRequest): Promise<string>
   showTerminalContextMenu(sessionId: string): Promise<void>

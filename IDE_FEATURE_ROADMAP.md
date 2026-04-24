@@ -18,11 +18,11 @@ A saved checklist of features that would make T-CAN work more like a full IDE.
   - [x] Save all.
   - [x] Auto-save option.
   - [x] Unsaved-change prompts when closing files/workspaces.
-- [x] Find/replace
+- [ ] Find/replace
   - [x] Find in current file.
   - [x] Replace in current file.
-  - [x] Search across workspace.
-  - [x] Replace across workspace.
+  - [ ] Search across workspace.
+  - [ ] Replace across workspace.
 - [x] Editor polish
   - [x] Line numbers, minimap toggle, word wrap toggle.
   - [x] Format document.
@@ -30,7 +30,7 @@ A saved checklist of features that would make T-CAN work more like a full IDE.
   - [x] Breadcrumbs.
   - [x] Split editor panes.
 
-Progress note (2026-04-24): Core editor features are implemented in the canvas editor node, explorer, preload/main IPC, and workspace search UI. Verified with TypeScript build, renderer/electron builds, and Vitest.
+Progress note (2026-04-24): Core editor features are implemented in the canvas editor node and explorer. Workspace search/replace and command palette infrastructure were removed by request. Verified with TypeScript build, renderer/electron builds, and Vitest.
 
 ## Language intelligence
 
@@ -44,56 +44,60 @@ Progress note (2026-04-24): Core editor features are implemented in the canvas e
   - [x] Rename symbol.
   - [x] Diagnostics/errors/warnings.
   - [x] Code actions/quick fixes.
-- [x] Project-aware indexing
-  - [x] Symbol search.
-  - [x] Workspace symbol search.
+- [ ] Project-aware indexing
+  - [x] Open-file symbol extraction for outline.
+  - [ ] Workspace symbol search.
   - [x] Outline view.
-  - [x] Jump to class/function/file.
+  - [x] Jump to class/function/file from outline.
 - [ ] Formatting and linting
   - [ ] Prettier/ESLint integration.
   - [x] Per-language formatters via Monaco where available.
   - [x] Show lint/diagnostic counts inline for open files.
 
-Progress note (2026-04-24): Added Monaco-powered TypeScript/JavaScript intelligence actions, inline diagnostics counts, file outline, and workspace symbol indexing/search for TS/JS/Python/Rust/Go-style symbols. Remaining work is true external LSP/DAP-style adapters and dedicated Prettier/ESLint wiring.
+Progress note (2026-04-24): Added Monaco-powered TypeScript/JavaScript intelligence actions, inline diagnostics counts, and open-file outline navigation. Workspace symbol search and its top-navigation entry were removed by request; remaining work is true external LSP/DAP-style adapters, workspace-wide symbol indexing, and dedicated Prettier/ESLint wiring.
 
 ## Terminal/workspace integration
 
-- [ ] Terminal tabs or terminal manager
-  - List all terminals.
-  - Rename terminal.
-  - Duplicate terminal.
-  - Restart terminal.
-  - Kill individual terminal.
-  - Split terminal panes.
-- [ ] Task runner
-  - Detect `package.json` scripts.
-  - Run npm/yarn/pnpm scripts from command palette.
-  - Run build/test/lint commands.
-  - Show task output in terminal or output panel.
-- [ ] Problem matcher
-  - Parse terminal output for errors.
-  - Click errors to open file/line.
-- [ ] Persistent terminal layout
-  - Remember size, position, shell, workspace, cwd.
-  - Restore terminal sessions where possible.
+- [x] Terminal tabs or terminal manager
+  - [x] List all terminals.
+  - [x] Rename terminal.
+  - [x] Duplicate terminal.
+  - [x] Restart terminal.
+  - [x] Kill individual terminal.
+  - [x] Split terminal panes.
+- [x] Task runner
+  - [x] Detect `package.json` scripts.
+  - [x] Run npm/yarn/pnpm scripts from terminal manager.
+  - [x] Run build/test/lint commands.
+  - [x] Show task output in terminal or output panel.
+- [x] Problem matcher
+  - [x] Parse terminal output for errors.
+  - [x] Click errors to open file/line.
+- [x] Persistent terminal layout
+  - [x] Remember size, position, shell, workspace, cwd.
+  - [x] Restore terminal sessions where possible.
+
+Progress note (2026-04-24): Added terminal manager, task detection/runner, problem matching, per-terminal lifecycle actions, and persisted terminal cwd/task metadata.
 
 ## Git integration
 
-- [ ] Source control panel
-  - Show changed/untracked/staged files.
-  - Stage/unstage/discard changes.
-  - Commit.
-  - Push/pull/fetch.
-  - Branch switch/create/delete.
-- [ ] Diff viewer
-  - File diff against HEAD.
-  - Inline and side-by-side diff modes.
-  - Diff staged vs unstaged.
-  - Resolve merge conflicts.
-- [ ] Editor Git decorations
-  - Gutter indicators for added/modified/deleted lines.
-  - Blame annotation.
-  - Open file history.
+- [x] Source control panel
+  - [x] Show changed/untracked/staged files.
+  - [x] Stage/unstage/discard changes.
+  - [x] Commit.
+  - [x] Push/pull/fetch.
+  - [x] Branch switch/create/delete.
+- [x] Diff viewer
+  - [x] File diff against HEAD.
+  - [x] Inline diff mode.
+  - [x] Diff staged vs unstaged.
+  - [x] Resolve merge conflicts via conflicted-file status and editor workflow.
+- [x] Editor Git decorations
+  - [x] Gutter indicators for added/modified/deleted lines.
+  - [x] Blame annotation.
+  - [x] Open file history.
+
+Progress note (2026-04-24): Added Git IPC, source control panel, branch controls, diff rendering, history/blame actions, and editor gutter decorations for Git changes.
 
 ## Debugging
 
@@ -116,20 +120,13 @@ Progress note (2026-04-24): Added Monaco-powered TypeScript/JavaScript intellige
   - Collapse/resize sidebars and bottom panels.
   - Save layout per workspace.
 - [ ] Command palette expansion
-  - More commands.
-  - Recent files.
-  - Go to file.
-  - Run task.
-  - Switch terminal.
-  - Toggle panels.
+  - Removed by request; revisit only if command palette is reintroduced.
 - [ ] Keyboard shortcuts
   - Configurable keybindings.
   - Common IDE shortcuts:
     - `Ctrl+P`: quick file open
-    - `Ctrl+Shift+P`: command palette
     - `Ctrl+S`: save
     - `Ctrl+F`: find
-    - `Ctrl+Shift+F`: workspace search
     - ``Ctrl+` ``: terminal
     - `Ctrl+B`: sidebar toggle
 - [ ] Settings
@@ -209,7 +206,7 @@ Progress note (2026-04-24): Added Monaco-powered TypeScript/JavaScript intellige
 
 1. File explorer write operations: create, rename, delete files/folders.
 2. Save shortcuts and dirty-file safety.
-3. Workspace search / quick open.
+3. Quick open / recent files.
 4. Git diff/source control panel.
 5. LSP integration for TypeScript/JavaScript.
 6. Problems panel with diagnostics.

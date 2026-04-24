@@ -82,6 +82,7 @@ export function EditorNode(props: EditorNodeProps) {
     onSplit,
   } = props
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const gitDecorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null)
   const [contents, setContents] = useState<Record<string, string>>({})
   const [savedContents, setSavedContents] = useState<Record<string, string>>({})
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
@@ -110,6 +111,38 @@ export function EditorNode(props: EditorNodeProps) {
   useEffect(() => {
     onDirtyChange(node.id, dirtyPaths)
   }, [dirtyPaths, node.id, onDirtyChange])
+
+  useEffect(() => {
+    let cancelled = false
+    if (!editorRef.current || !activeFilePath || !window.tcan?.getGitFileDiff) {
+      return
+    }
+
+    void window.tcan.getGitFileDiff(workspaceId, activeFilePath).then((diff) => {
+      if (cancelled || !editorRef.current) {
+        return
+      }
+      const monacoEditor = editorRef.current
+      const decorations = diff.lines.flatMap((line) => {
+        if (line.type === 'add' && line.newLine) {
+          return [{ range: { startLineNumber: line.newLine, startColumn: 1, endLineNumber: line.newLine, endColumn: 1 }, options: { isWholeLine: true, className: 'monaco-git-line--added', glyphMarginClassName: 'monaco-git-glyph--added' } }]
+        }
+        if (line.type === 'delete' && line.oldLine) {
+          const targetLine = Math.max(1, line.newLine ?? line.oldLine)
+          return [{ range: { startLineNumber: targetLine, startColumn: 1, endLineNumber: targetLine, endColumn: 1 }, options: { isWholeLine: true, className: 'monaco-git-line--deleted', glyphMarginClassName: 'monaco-git-glyph--deleted' } }]
+        }
+        return []
+      })
+      gitDecorationsRef.current?.clear()
+      gitDecorationsRef.current = monacoEditor.createDecorationsCollection(decorations)
+    }).catch(() => {
+      gitDecorationsRef.current?.clear()
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [activeFilePath, savedContents, workspaceId])
 
   useEffect(() => {
     let cancelled = false
@@ -376,6 +409,7 @@ export function EditorNode(props: EditorNodeProps) {
             automaticLayout: true,
             fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
             fontSize: Math.max(10, 13 * scale),
+            glyphMargin: true,
             lineNumbers: 'on',
             minimap: {
               enabled: showMinimap,

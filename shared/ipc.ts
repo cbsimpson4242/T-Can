@@ -15,6 +15,8 @@ export const terminalNodeSchema = canvasNodeBaseSchema.extend({
   sessionId: z.string().optional(),
   shell: z.string().optional(),
   sshTarget: z.string().optional(),
+  cwd: z.string().optional(),
+  taskName: z.string().optional(),
 })
 
 export const editorTabSchema = z.object({
@@ -96,18 +98,20 @@ export const workspacePathRenameSchema = z.object({
   nextRelativePath: z.string().trim().min(1),
 })
 
-export const workspaceTextSearchSchema = z.object({
+export const gitFileRequestSchema = z.object({
   workspaceId: z.string(),
-  query: z.string(),
+  filePath: z.string(),
+  staged: z.boolean().optional().default(false),
 })
 
-export const workspaceTextReplaceSchema = workspaceTextSearchSchema.extend({
-  replacement: z.string(),
+export const gitCommitRequestSchema = z.object({
+  workspaceId: z.string(),
+  message: z.string().trim().min(1),
 })
 
-export const workspaceSymbolRequestSchema = z.object({
+export const gitBranchRequestSchema = z.object({
   workspaceId: z.string(),
-  query: z.string().optional().default(''),
+  branch: z.string().trim().min(1),
 })
 
 export const createTerminalRequestSchema = z.object({
@@ -162,9 +166,7 @@ export const IPC_CHANNELS = {
   duplicateWorkspacePath: 'workspace:duplicate-path',
   copyWorkspacePath: 'workspace:copy-path',
   revealWorkspacePath: 'workspace:reveal-path',
-  searchWorkspaceText: 'workspace:search-text',
-  replaceWorkspaceText: 'workspace:replace-text',
-  listWorkspaceSymbols: 'workspace:list-symbols',
+  listWorkspaceTasks: 'workspace:list-tasks',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',
@@ -172,6 +174,21 @@ export const IPC_CHANNELS = {
   resizeTerminal: 'terminal:resize',
   closeTerminal: 'terminal:close',
   closeAllTerminals: 'terminal:close-all',
+  getGitStatus: 'git:status',
+  getGitBranches: 'git:branches',
+  gitStage: 'git:stage',
+  gitUnstage: 'git:unstage',
+  gitDiscard: 'git:discard',
+  gitCommit: 'git:commit',
+  gitPush: 'git:push',
+  gitPull: 'git:pull',
+  gitFetch: 'git:fetch',
+  gitCheckoutBranch: 'git:checkout-branch',
+  gitCreateBranch: 'git:create-branch',
+  gitDeleteBranch: 'git:delete-branch',
+  getGitFileDiff: 'git:file-diff',
+  getGitFileHistory: 'git:file-history',
+  getGitBlame: 'git:blame',
   readClipboardForTerminal: 'terminal:read-clipboard',
   showTerminalContextMenu: 'terminal:show-context-menu',
   terminalOutput: 'terminal:output',

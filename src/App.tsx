@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, EditorTab, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry, WorkspaceSymbol, WorkspaceTextSearchResult } from '../shared/types'
-import { CommandPalette } from './components/CommandPalette'
+import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
@@ -30,20 +29,19 @@ interface CanvasContextMenuState {
   y: number
 }
 
-interface WorkspaceSearchState {
-  query: string
-  replacement: string
-  results: WorkspaceTextSearchResult[]
-  searching: boolean
-}
-
-interface WorkspaceSymbolState {
-  query: string
-  results: WorkspaceSymbol[]
-  searching: boolean
+interface GitPanelState {
+  status: GitStatusEntry[]
+  branches: GitBranchSummary | null
+  selectedPath: string | null
+  diff: GitFileDiff | null
+  diffMode: 'inline' | 'side-by-side'
+  commitMessage: string
+  loading: boolean
+  error: string | null
 }
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
+const PROBLEM_PATTERN = /(?<path>(?:[A-Za-z]:)?[^\s:()]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?::(?<column>\d+))?[):]?\s*(?<message>.*)$/
 const SELECTION_DRAG_THRESHOLD = 4
 
 function getWorkspaceName(workspacePath: string): string {
@@ -64,6 +62,31 @@ function createEditorTab(filePath: string): EditorTab {
 
 function joinWorkspacePath(parentPath: string, name: string): string {
   return [parentPath, name].filter(Boolean).join('/').replace(/\\/g, '/')
+}
+
+function normalizeProblemPath(filePath: string): string {
+  return filePath.replace(/\\/g, '/').replace(/^\.\//, '')
+}
+
+function parseProblemLine(data: string, sessionId?: string): ProblemMatch[] {
+  return data.split(/\r?\n/).flatMap((line, index) => {
+    const match = PROBLEM_PATTERN.exec(line)
+    if (!match?.groups?.path || !match.groups.line) {
+      return []
+    }
+    const message = match.groups.message || line.trim()
+    const lowerMessage = message.toLowerCase()
+    return [{
+      id: `${sessionId ?? 'terminal'}:${Date.now()}:${index}:${match.groups.path}:${match.groups.line}`,
+      source: 'terminal',
+      message,
+      relativePath: normalizeProblemPath(match.groups.path),
+      line: Number(match.groups.line),
+      column: match.groups.column ? Number(match.groups.column) : undefined,
+      severity: lowerMessage.includes('warn') ? 'warning' : lowerMessage.includes('info') ? 'info' : 'error',
+      sessionId,
+    }]
+  })
 }
 
 function getActiveWorkspace(state: Pick<PersistedAppState, 'activeWorkspaceId' | 'workspaces'>): PersistedWorkspace | null {
@@ -122,11 +145,11 @@ function App() {
   const [saveSignal, setSaveSignal] = useState(0)
   const [saveAllSignal, setSaveAllSignal] = useState(0)
   const [autoSave, setAutoSave] = useState(false)
-  const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false)
-  const [workspaceSearch, setWorkspaceSearch] = useState<WorkspaceSearchState>({ query: '', replacement: '', results: [], searching: false })
-  const [isWorkspaceSymbolOpen, setIsWorkspaceSymbolOpen] = useState(false)
-  const [workspaceSymbols, setWorkspaceSymbols] = useState<WorkspaceSymbolState>({ query: '', results: [], searching: false })
-  const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
+  const [workspaceTasks, setWorkspaceTasks] = useState<WorkspaceTaskScript[]>([])
+  const [problems, setProblems] = useState<ProblemMatch[]>([])
+  const [isTerminalManagerOpen, setIsTerminalManagerOpen] = useState(false)
+  const [isGitPanelOpen, setIsGitPanelOpen] = useState(false)
+  const [gitPanel, setGitPanel] = useState<GitPanelState>({ status: [], branches: null, selectedPath: null, diff: null, diffMode: 'inline', commitMessage: '', loading: false, error: null })
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
   const [sshHostInput, setSshHostInput] = useState('example.com')
   const [sshUsernameInput, setSshUsernameInput] = useState('user')
@@ -139,7 +162,8 @@ function App() {
     () => Object.values(dirtyEditorPathsByNode).reduce((count, paths) => count + paths.length, 0),
     [dirtyEditorPathsByNode],
   )
-  const terminalNodeCount = useMemo(() => nodes.filter((node) => node.type !== 'editor').length, [nodes])
+  const terminalNodes = useMemo(() => nodes.filter((node): node is TerminalNodeModel => node.type !== 'editor'), [nodes])
+  const terminalNodeCount = terminalNodes.length
 
   const layout = useMemo<PersistedLayout>(
     () => ({
@@ -171,6 +195,8 @@ function App() {
           sessionId: node.sessionId,
           shell: node.shell,
           sshTarget: node.sshTarget,
+          cwd: node.cwd,
+          taskName: node.taskName,
         }
       }),
       viewport,
@@ -203,7 +229,7 @@ function App() {
           if (node.sessionId) {
             const existingSession = await api.getTerminalSession(node.sessionId)
             if (existingSession) {
-              return { ...node, shell: existingSession.info.shell }
+              return { ...node, shell: existingSession.info.shell, cwd: existingSession.info.cwd }
             }
           }
 
@@ -211,7 +237,7 @@ function App() {
           const session = sshTarget
             ? await api.createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
             : await api.createTerminal({ cwd: workspace.path })
-          return { ...node, type: 'terminal' as const, sessionId: session.sessionId, shell: session.shell, sshTarget }
+          return { ...node, type: 'terminal' as const, sessionId: session.sessionId, shell: session.shell, sshTarget, cwd: session.cwd }
         }),
       )
 
@@ -226,24 +252,6 @@ function App() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const usesCommandModifier = event.ctrlKey || event.metaKey
-      if (usesCommandModifier && event.shiftKey && event.key.toLowerCase() === 'p') {
-        event.preventDefault()
-        setIsCommandPaletteOpen(true)
-        return
-      }
-
-      if (usesCommandModifier && event.shiftKey && event.key.toLowerCase() === 'f') {
-        event.preventDefault()
-        setIsWorkspaceSearchOpen(true)
-        return
-      }
-
-      if (usesCommandModifier && event.key.toLowerCase() === 't') {
-        event.preventDefault()
-        setIsWorkspaceSymbolOpen(true)
-        return
-      }
-
       if (usesCommandModifier && event.key.toLowerCase() === 's') {
         event.preventDefault()
         if (event.shiftKey) {
@@ -484,11 +492,38 @@ function App() {
     })
   }
 
+  async function refreshWorkspaceTasks() {
+    if (!activeWorkspaceId || activeWorkspace?.kind === 'ssh') {
+      setWorkspaceTasks([])
+      return
+    }
+    try {
+      setWorkspaceTasks(await getApi().listWorkspaceTasks(activeWorkspaceId))
+    } catch {
+      setWorkspaceTasks([])
+    }
+  }
+
   useEffect(() => {
     queueMicrotask(() => void refreshFileTree())
-    // refreshFileTree intentionally reads the latest active workspace state.
+    queueMicrotask(() => void refreshWorkspaceTasks())
+    // refreshFileTree/refreshWorkspaceTasks intentionally read the latest active workspace state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeWorkspaceId])
+
+  useEffect(() => {
+    if (!window.tcan?.onTerminalOutput) {
+      return
+    }
+
+    return window.tcan.onTerminalOutput(({ sessionId, data }) => {
+      const nextProblems = parseProblemLine(data, sessionId)
+      if (nextProblems.length === 0) {
+        return
+      }
+      setProblems((current) => [...nextProblems, ...current].slice(0, 300))
+    })
+  }, [])
 
   useEffect(() => {
     if (isBootstrapping || isRestoringWorkspaceRef.current || !activeWorkspaceId) {
@@ -649,36 +684,87 @@ function App() {
     }
   }
 
-  async function handleCreateTerminal() {
+  async function createTerminalAtCenter(options: { title?: string; cwd?: string | null; command?: string; args?: string[]; taskName?: string; offset?: { x: number; y: number } } = {}) {
     const bounds = canvasRef.current?.getBoundingClientRect()
     if (!bounds) {
-      return
+      return null
     }
 
+    const position = getViewportCenterWorldPoint(viewport, bounds)
+    const node = createTerminalNode({ x: position.x + (options.offset?.x ?? 0), y: position.y + (options.offset?.y ?? 0) })
+    const sshTarget = activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined
+    const session = sshTarget
+      ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
+      : await getApi().createTerminal({ cwd: options.cwd ?? workspacePath, command: options.command, args: options.args })
+    const terminalNode = {
+      ...node,
+      title: options.title ?? (sshTarget ? `SSH ${sshTarget}` : node.title),
+      sessionId: session.sessionId,
+      shell: session.shell,
+      sshTarget,
+      cwd: session.cwd,
+      taskName: options.taskName,
+    }
+    setNodes((current) => [...current, terminalNode])
+    setSelectedNodeIds([node.id])
+    return terminalNode
+  }
+
+  async function handleCreateTerminal() {
     setIsCreatingTerminal(true)
     try {
-      const node = createTerminalNode(getViewportCenterWorldPoint(viewport, bounds))
-      const sshTarget = activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined
-      const session = sshTarget
-        ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
-        : await getApi().createTerminal({ cwd: workspacePath })
-      setNodes((current) => [
-        ...current,
-        {
-          ...node,
-          title: sshTarget ? `SSH ${sshTarget}` : node.title,
-          sessionId: session.sessionId,
-          shell: session.shell,
-          sshTarget,
-        },
-      ])
-      setSelectedNodeIds([node.id])
+      await createTerminalAtCenter()
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to create a terminal.\n\n${message}`)
     } finally {
       setIsCreatingTerminal(false)
     }
+  }
+
+  async function handleRunTask(task: WorkspaceTaskScript) {
+    try {
+      const terminalNode = await createTerminalAtCenter({
+        title: `Task ${task.name}`,
+        cwd: task.cwd,
+        taskName: task.name,
+        offset: { x: 30, y: 30 },
+      })
+      if (terminalNode?.sessionId) {
+        await getApi().writeTerminal(terminalNode.sessionId, `${task.packageManager} run ${task.name}\r`)
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to run task.\n\n${message}`)
+    }
+  }
+
+  async function handleDuplicateTerminal(node: TerminalNodeModel) {
+    try {
+      await createTerminalAtCenter({ title: `${node.title} copy`, cwd: node.cwd ?? workspacePath, offset: { x: 45, y: 45 } })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to duplicate terminal.\n\n${message}`)
+    }
+  }
+
+  async function handleRestartTerminal(node: TerminalNodeModel) {
+    if (node.sessionId) {
+      await getApi().closeTerminal(node.sessionId)
+    }
+    const sshTarget = activeWorkspace?.kind === 'ssh' ? node.sshTarget ?? activeWorkspace.sshTarget : undefined
+    const session = sshTarget
+      ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
+      : await getApi().createTerminal({ cwd: node.cwd ?? workspacePath })
+    setNodes((current) => current.map((entry) => entry.id === node.id ? { ...node, sessionId: session.sessionId, shell: session.shell, cwd: session.cwd } : entry))
+  }
+
+  function handleRenameTerminal(node: TerminalNodeModel) {
+    const title = window.prompt('Terminal name', node.title)?.trim()
+    if (!title) {
+      return
+    }
+    setNodes((current) => current.map((entry) => entry.id === node.id ? { ...entry, title } : entry))
   }
 
   function handleEditorDirtyChange(nodeId: string, dirtyPaths: string[]) {
@@ -1015,136 +1101,38 @@ function App() {
     window.addEventListener('pointercancel', stop)
   }
 
-  async function runWorkspaceSearch() {
-    if (!activeWorkspaceId || !workspaceSearch.query) {
-      return
-    }
-    setWorkspaceSearch((current) => ({ ...current, searching: true }))
-    try {
-      const results = await getApi().searchWorkspaceText(activeWorkspaceId, workspaceSearch.query)
-      setWorkspaceSearch((current) => ({ ...current, results }))
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      window.alert(`Workspace search failed.\n\n${message}`)
-    } finally {
-      setWorkspaceSearch((current) => ({ ...current, searching: false }))
-    }
-  }
-
-  async function runWorkspaceReplace() {
-    if (!activeWorkspaceId || !workspaceSearch.query) {
-      return
-    }
-    if (!window.confirm(`Replace all occurrences of "${workspaceSearch.query}" across the workspace?`)) {
-      return
-    }
-    setWorkspaceSearch((current) => ({ ...current, searching: true }))
-    try {
-      const results = await getApi().replaceWorkspaceText(activeWorkspaceId, workspaceSearch.query, workspaceSearch.replacement)
-      setWorkspaceSearch((current) => ({ ...current, results }))
-      await refreshFileTree()
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      window.alert(`Workspace replace failed.\n\n${message}`)
-    } finally {
-      setWorkspaceSearch((current) => ({ ...current, searching: false }))
-    }
-  }
-
-  async function runWorkspaceSymbolSearch(query = workspaceSymbols.query) {
+  async function refreshGitPanel(selectedPath = gitPanel.selectedPath) {
     if (!activeWorkspaceId) {
       return
     }
-    setWorkspaceSymbols((current) => ({ ...current, searching: true }))
+    setGitPanel((current) => ({ ...current, loading: true, error: null }))
     try {
-      const results = await getApi().listWorkspaceSymbols(activeWorkspaceId, query)
-      setWorkspaceSymbols((current) => ({ ...current, query, results }))
+      const [status, branches] = await Promise.all([getApi().getGitStatus(activeWorkspaceId), getApi().getGitBranches(activeWorkspaceId)])
+      const nextSelectedPath = selectedPath ?? status[0]?.path ?? null
+      const selectedEntry = status.find((entry) => entry.path === nextSelectedPath)
+      const diff = nextSelectedPath ? await getApi().getGitFileDiff(activeWorkspaceId, nextSelectedPath, Boolean(selectedEntry?.staged && !selectedEntry.unstaged)) : null
+      setGitPanel((current) => ({ ...current, status, branches, selectedPath: nextSelectedPath, diff, loading: false, error: null }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      window.alert(`Workspace symbol search failed.\n\n${message}`)
-    } finally {
-      setWorkspaceSymbols((current) => ({ ...current, searching: false }))
+      setGitPanel((current) => ({ ...current, loading: false, error: message }))
     }
   }
 
-  function openWorkspaceSymbolSearch() {
-    setIsWorkspaceSymbolOpen(true)
-    if (workspaceSymbols.results.length === 0) {
-      void runWorkspaceSymbolSearch('')
-    }
+  async function openGitPanel() {
+    setIsGitPanelOpen(true)
+    await refreshGitPanel()
   }
 
-  const commandPaletteCommands = [
-    {
-      id: 'open-workspace',
-      label: 'Add workspace',
-      description: 'Open another project folder.',
-      disabled: isOpeningWorkspace,
-      run: () => void handleOpenWorkspace(),
-    },
-    {
-      id: 'open-ssh-workspace',
-      label: 'SSH workspace',
-      description: 'Connect to a remote machine as a workspace.',
-      disabled: isOpeningWorkspace,
-      run: () => openSshDialog(),
-    },
-    {
-      id: 'new-terminal',
-      label: 'New terminal',
-      description: 'Create a terminal at the canvas center.',
-      disabled: isCreatingTerminal || isBootstrapping,
-      run: () => void handleCreateTerminal(),
-    },
-    {
-      id: 'save-active-file',
-      label: 'Save active file',
-      description: 'Save the selected editor tab (Ctrl/⌘+S).',
-      disabled: dirtyEditorPathCount === 0,
-      run: () => setSaveSignal((current) => current + 1),
-    },
-    {
-      id: 'save-all-files',
-      label: 'Save all files',
-      description: 'Save every dirty editor tab (Ctrl/⌘+Shift+S).',
-      disabled: dirtyEditorPathCount === 0,
-      run: () => setSaveAllSignal((current) => current + 1),
-    },
-    {
-      id: 'toggle-autosave',
-      label: autoSave ? 'Disable auto-save' : 'Enable auto-save',
-      description: 'Automatically save dirty editor tabs shortly after edits.',
-      run: () => setAutoSave((current) => !current),
-    },
-    {
-      id: 'workspace-search',
-      label: 'Workspace search / replace',
-      description: 'Search and replace text across the active workspace.',
-      disabled: !activeWorkspaceId || activeWorkspace?.kind === 'ssh',
-      run: () => setIsWorkspaceSearchOpen(true),
-    },
-    {
-      id: 'workspace-symbols',
-      label: 'Workspace symbols',
-      description: 'Find classes, functions, types, and other project symbols.',
-      disabled: !activeWorkspaceId || activeWorkspace?.kind === 'ssh',
-      run: openWorkspaceSymbolSearch,
-    },
-    {
-      id: 'refresh-files',
-      label: 'Refresh file explorer',
-      description: 'Reload the active workspace file tree.',
-      disabled: !activeWorkspaceId || isLoadingFiles,
-      run: () => void refreshFileTree(),
-    },
-    {
-      id: 'kill-terminals',
-      label: 'Kill all terminals',
-      description: 'Stop every running T-CAN terminal session.',
-      disabled: isKillingTerminals || terminalNodeCount === 0,
-      run: () => void handleKillAllTerminals(),
-    },
-  ]
+  async function runGitAction(action: () => Promise<void>) {
+    try {
+      await action()
+      await refreshGitPanel()
+      await refreshFileTree()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Git operation failed.\n\n${message}`)
+    }
+  }
 
   function handleCanvasContextMenu(event: ReactMouseEvent<HTMLDivElement>) {
     event.preventDefault()
@@ -1193,105 +1181,119 @@ function App() {
 
   return (
     <div className="app-shell">
-      <CommandPalette
-        commands={commandPaletteCommands}
-        onClose={() => setIsCommandPaletteOpen(false)}
-        open={isCommandPaletteOpen}
-      />
-      {isWorkspaceSearchOpen && (
-        <div className="workspace-search" role="presentation" onMouseDown={() => setIsWorkspaceSearchOpen(false)}>
-          <section className="workspace-search__panel" aria-label="Workspace search" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="workspace-search__header">
-              <strong>WORKSPACE SEARCH</strong>
-              <button className="icon-button" onClick={() => setIsWorkspaceSearchOpen(false)} type="button">x</button>
+      {isTerminalManagerOpen && (
+        <div className="app-modal" role="presentation" onMouseDown={() => setIsTerminalManagerOpen(false)}>
+          <section className="app-modal__panel app-modal__panel--wide" aria-label="Terminal manager" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="app-modal__header">
+              <strong>TERMINAL MANAGER</strong>
+              <button className="icon-button" onClick={() => setIsTerminalManagerOpen(false)} type="button">x</button>
             </header>
-            <div className="workspace-search__fields">
-              <input
-                autoFocus
-                onChange={(event) => setWorkspaceSearch((current) => ({ ...current, query: event.target.value }))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    void runWorkspaceSearch()
-                  }
-                }}
-                placeholder="Find text across workspace"
-                value={workspaceSearch.query}
-              />
-              <input
-                onChange={(event) => setWorkspaceSearch((current) => ({ ...current, replacement: event.target.value }))}
-                placeholder="Replacement text"
-                value={workspaceSearch.replacement}
-              />
-              <div className="workspace-search__actions">
-                <button className="command-button" disabled={!workspaceSearch.query || workspaceSearch.searching} onClick={() => void runWorkspaceSearch()} type="button">
-                  {workspaceSearch.searching ? 'SEARCHING...' : 'Search'}
-                </button>
-                <button className="command-button command-button--danger" disabled={!workspaceSearch.query || workspaceSearch.searching} onClick={() => void runWorkspaceReplace()} type="button">
-                  Replace all
-                </button>
-              </div>
-            </div>
-            <div className="workspace-search__results">
-              {workspaceSearch.results.length === 0 ? (
-                <p>No results.</p>
-              ) : workspaceSearch.results.map((result) => (
-                <section className="workspace-search__result" key={result.relativePath}>
-                  <button onClick={() => handleOpenFileFromExplorer(result.relativePath)} type="button">{result.relativePath}</button>
-                  {result.matches.slice(0, 8).map((match) => (
-                    <button className="workspace-search__match" key={`${result.relativePath}-${match.line}-${match.column}`} onClick={() => handleOpenFileFromExplorer(result.relativePath)} type="button">
-                      <span>{match.line}:{match.column}</span>
-                      <code>{match.preview}</code>
-                    </button>
-                  ))}
-                </section>
-              ))}
+            <div className="app-modal__results terminal-manager">
+              <section>
+                <h3>Tasks</h3>
+                {workspaceTasks.length === 0 ? <p>No package.json scripts detected.</p> : workspaceTasks.map((task) => (
+                  <button className="app-modal__row" key={task.name} onClick={() => void handleRunTask(task)} type="button">
+                    <strong>{task.packageManager} run {task.name}</strong>
+                    <span>{task.command}</span>
+                  </button>
+                ))}
+              </section>
+              <section>
+                <h3>Terminals</h3>
+                {terminalNodes.map((node) => (
+                  <div className="terminal-manager__row" key={node.id}>
+                    <div>
+                      <strong>{node.title}</strong>
+                      <span>{node.cwd ?? workspacePath ?? 'HOME'} · {node.shell ?? 'shell'}</span>
+                    </div>
+                    <button onClick={() => setSelectedNodeIds([node.id])} type="button">Focus</button>
+                    <button onClick={() => handleRenameTerminal(node)} type="button">Rename</button>
+                    <button onClick={() => void handleDuplicateTerminal(node)} type="button">Duplicate</button>
+                    <button onClick={() => void handleDuplicateTerminal({ ...node, title: `${node.title} split` })} type="button">Split</button>
+                    <button onClick={() => void handleRestartTerminal(node)} type="button">Restart</button>
+                    <button className="command-button--danger" onClick={() => void removeNode(node.id)} type="button">Kill</button>
+                  </div>
+                ))}
+              </section>
+              <section>
+                <h3>Problems</h3>
+                {problems.length === 0 ? <p>No terminal problems matched yet.</p> : problems.slice(0, 80).map((problem) => (
+                  <button className="app-modal__row" key={problem.id} onClick={() => handleOpenFileFromExplorer(problem.relativePath)} type="button">
+                    <strong>{problem.relativePath}:{problem.line}{problem.column ? `:${problem.column}` : ''}</strong>
+                    <span>{problem.severity.toUpperCase()} · {problem.message}</span>
+                  </button>
+                ))}
+              </section>
             </div>
           </section>
         </div>
       )}
-      {isWorkspaceSymbolOpen && (
-        <div className="workspace-search" role="presentation" onMouseDown={() => setIsWorkspaceSymbolOpen(false)}>
-          <section className="workspace-search__panel" aria-label="Workspace symbols" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="workspace-search__header">
-              <strong>WORKSPACE SYMBOLS</strong>
-              <button className="icon-button" onClick={() => setIsWorkspaceSymbolOpen(false)} type="button">x</button>
+      {isGitPanelOpen && (
+        <div className="app-modal" role="presentation" onMouseDown={() => setIsGitPanelOpen(false)}>
+          <section className="app-modal__panel app-modal__panel--wide git-panel" aria-label="Source control" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="app-modal__header">
+              <strong>SOURCE CONTROL {gitPanel.branches?.current ? `// ${gitPanel.branches.current}` : ''}</strong>
+              <button className="icon-button" onClick={() => setIsGitPanelOpen(false)} type="button">x</button>
             </header>
-            <div className="workspace-search__fields">
-              <input
-                autoFocus
-                onChange={(event) => setWorkspaceSymbols((current) => ({ ...current, query: event.target.value }))}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') {
-                    void runWorkspaceSymbolSearch()
-                  }
-                }}
-                placeholder="Search classes, functions, types, symbols"
-                value={workspaceSymbols.query}
-              />
-              <div className="workspace-search__actions">
-                <button className="command-button" disabled={workspaceSymbols.searching} onClick={() => void runWorkspaceSymbolSearch()} type="button">
-                  {workspaceSymbols.searching ? 'INDEXING...' : 'Search symbols'}
-                </button>
-              </div>
+            <div className="git-panel__toolbar">
+              <button className="command-button" disabled={gitPanel.loading} onClick={() => void refreshGitPanel()} type="button">Refresh</button>
+              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitFetch(activeWorkspaceId))} type="button">Fetch</button>
+              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPull(activeWorkspaceId))} type="button">Pull</button>
+              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPush(activeWorkspaceId))} type="button">Push</button>
+              <select
+                disabled={!activeWorkspaceId || gitPanel.loading}
+                onChange={(event) => event.target.value && activeWorkspaceId && void runGitAction(() => getApi().gitCheckoutBranch(activeWorkspaceId, event.target.value))}
+                value={gitPanel.branches?.current ?? ''}
+              >
+                {(gitPanel.branches?.branches ?? []).map((branch) => <option key={branch} value={branch}>{branch}</option>)}
+              </select>
+              <button className="command-button" onClick={() => {
+                const branch = window.prompt('New branch name')?.trim()
+                if (branch && activeWorkspaceId) void runGitAction(() => getApi().gitCreateBranch(activeWorkspaceId, branch))
+              }} type="button">New Branch</button>
+              <button className="command-button command-button--danger" disabled={!gitPanel.branches?.current} onClick={() => {
+                const branch = gitPanel.branches?.current
+                if (branch && window.confirm(`Delete branch ${branch}?`) && activeWorkspaceId) void runGitAction(() => getApi().gitDeleteBranch(activeWorkspaceId, branch))
+              }} type="button">Delete Branch</button>
             </div>
-            <div className="workspace-search__results">
-              {workspaceSymbols.results.length === 0 ? (
-                <p>No symbols found.</p>
-              ) : workspaceSymbols.results.map((symbol) => (
-                <button
-                  className="workspace-search__symbol"
-                  key={`${symbol.relativePath}-${symbol.kind}-${symbol.name}-${symbol.line}-${symbol.column}`}
-                  onClick={() => {
-                    handleOpenFileFromExplorer(symbol.relativePath)
-                    setIsWorkspaceSymbolOpen(false)
-                  }}
-                  type="button"
-                >
-                  <strong>{symbol.name}</strong>
-                  <span>{symbol.kind} · {symbol.relativePath}:{symbol.line}:{symbol.column}</span>
-                </button>
-              ))}
+            {gitPanel.error && <p className="git-panel__error">{gitPanel.error}</p>}
+            <div className="git-panel__body">
+              <aside className="git-panel__files">
+                {gitPanel.status.length === 0 ? <p>No changes.</p> : gitPanel.status.map((entry) => (
+                  <button className={entry.path === gitPanel.selectedPath ? 'git-panel__file git-panel__file--active' : 'git-panel__file'} key={entry.path} onClick={() => void refreshGitPanel(entry.path)} type="button">
+                    <strong>{entry.indexStatus}{entry.workTreeStatus}</strong>
+                    <span>{entry.path}</span>
+                  </button>
+                ))}
+              </aside>
+              <main className="git-panel__diff">
+                {gitPanel.selectedPath && (
+                  <div className="git-panel__file-actions">
+                    <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitStage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Stage</button>
+                    <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitUnstage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Unstage</button>
+                    <button onClick={() => gitPanel.selectedPath && handleOpenFileFromExplorer(gitPanel.selectedPath)} type="button">Open</button>
+                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, false).then((diff) => setGitPanel((current) => ({ ...current, diff })))} type="button">Unstaged Diff</button>
+                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, true).then((diff) => setGitPanel((current) => ({ ...current, diff })))} type="button">Staged Diff</button>
+                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileHistory(activeWorkspaceId, gitPanel.selectedPath).then((history) => window.alert(history.map((commit) => `${commit.hash} ${commit.date} ${commit.author}\n${commit.subject}`).join('\n\n') || 'No history.'))} type="button">History</button>
+                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitBlame(activeWorkspaceId, gitPanel.selectedPath).then((blame) => window.alert(blame.slice(0, 60).map((line) => `${line.line} ${line.commit} ${line.author}: ${line.content}`).join('\n') || 'No blame.'))} type="button">Blame</button>
+                    <button onClick={() => setGitPanel((current) => ({ ...current, diffMode: current.diffMode === 'inline' ? 'side-by-side' : 'inline' }))} type="button">{gitPanel.diffMode === 'inline' ? 'Side-by-side' : 'Inline'}</button>
+                    <button className="command-button--danger" onClick={() => activeWorkspaceId && gitPanel.selectedPath && window.confirm(`Discard changes in ${gitPanel.selectedPath}?`) && void runGitAction(() => getApi().gitDiscard(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Discard</button>
+                  </div>
+                )}
+                {gitPanel.diffMode === 'inline' ? (
+                  <pre>{gitPanel.diff?.lines.map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+                ) : (
+                  <div className="git-panel__side-by-side">
+                    <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'add').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`old-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+                    <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'delete').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`new-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+                  </div>
+                )}
+              </main>
             </div>
+            <footer className="git-panel__commit">
+              <input onChange={(event) => setGitPanel((current) => ({ ...current, commitMessage: event.target.value }))} placeholder="Commit message" value={gitPanel.commitMessage} />
+              <button className="command-button" disabled={!gitPanel.commitMessage.trim()} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitCommit(activeWorkspaceId, gitPanel.commitMessage))} type="button">Commit</button>
+            </footer>
           </section>
         </div>
       )}
@@ -1386,20 +1388,17 @@ function App() {
           )}
         </nav>
         <div className="topbar__actions">
-          <button className="command-button" onClick={() => setIsCommandPaletteOpen(true)} type="button">
-            COMMANDS
-          </button>
           <button className="command-button" disabled={dirtyEditorPathCount === 0} onClick={() => setSaveAllSignal((current) => current + 1)} type="button">
             SAVE ALL
           </button>
           <button className="command-button" onClick={() => setAutoSave((current) => !current)} type="button">
             AUTOSAVE {autoSave ? 'ON' : 'OFF'}
           </button>
-          <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={() => setIsWorkspaceSearchOpen(true)} type="button">
-            SEARCH
+          <button className="command-button" disabled={terminalNodeCount === 0} onClick={() => setIsTerminalManagerOpen(true)} type="button">
+            TERMS
           </button>
-          <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={openWorkspaceSymbolSearch} type="button">
-            SYMBOLS
+          <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={() => void openGitPanel()} type="button">
+            GIT
           </button>
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
