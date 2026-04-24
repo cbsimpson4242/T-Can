@@ -40,7 +40,7 @@ export const legacyPersistedAppStateSchema = z.object({
   layout: persistedLayoutSchema,
 })
 
-export const switchWorkspaceSchema = z.object({
+export const workspaceRequestSchema = z.object({
   workspaceId: z.string(),
 })
 
@@ -83,6 +83,7 @@ export const IPC_CHANNELS = {
   saveLayout: 'app:save-layout',
   openWorkspace: 'workspace:open-folder',
   switchWorkspace: 'workspace:switch',
+  closeWorkspace: 'workspace:close',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',

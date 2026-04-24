@@ -13,6 +13,9 @@ const api: TCanApi = {
   switchWorkspace(workspaceId) {
     return ipcRenderer.invoke(IPC_CHANNELS.switchWorkspace, { workspaceId })
   },
+  closeWorkspace(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.closeWorkspace, { workspaceId })
+  },
   saveLayout(layout) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
   },

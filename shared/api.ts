@@ -15,6 +15,7 @@ export interface TCanApi {
   getAppState(): Promise<PersistedAppState>
   openWorkspace(): Promise<PersistedAppState>
   switchWorkspace(workspaceId: string): Promise<PersistedAppState>
+  closeWorkspace(workspaceId: string): Promise<PersistedAppState>
   saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>

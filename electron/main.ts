@@ -12,9 +12,9 @@ import {
   terminalCloseSchema,
   terminalContextMenuSchema,
   terminalSessionSchema,
-  switchWorkspaceSchema,
   terminalResizeSchema,
   terminalWriteSchema,
+  workspaceRequestSchema,
 } from '../shared/ipc'
 import type { PersistedAppState, PersistedWorkspace } from '../shared/types'
 
@@ -214,7 +214,7 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.switchWorkspace, async (_event, candidate) => {
-    const request = switchWorkspaceSchema.parse(candidate)
+    const request = workspaceRequestSchema.parse(candidate)
     const workspace = persistedState.workspaces.find((entry) => entry.id === request.workspaceId)
     if (!workspace) {
       return persistedState
@@ -223,6 +223,33 @@ function registerIpcHandlers(): void {
     return persistLayout({
       ...persistedState,
       activeWorkspaceId: workspace.id,
+    })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.closeWorkspace, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    const closingWorkspace = persistedState.workspaces.find((entry) => entry.id === request.workspaceId)
+    if (!closingWorkspace) {
+      return persistedState
+    }
+
+    const closingSessionIds = closingWorkspace.layout.nodes
+      .map((node) => node.sessionId)
+      .filter((sessionId): sessionId is string => Boolean(sessionId))
+
+    await Promise.allSettled(closingSessionIds.map((sessionId) => terminalDaemon.close(sessionId)))
+    void persistTerminalRegistry()
+
+    const closingIndex = persistedState.workspaces.findIndex((entry) => entry.id === request.workspaceId)
+    const workspaces = persistedState.workspaces.filter((entry) => entry.id !== request.workspaceId)
+    const activeWorkspaceId =
+      persistedState.activeWorkspaceId === request.workspaceId
+        ? workspaces[Math.min(closingIndex, workspaces.length - 1)]?.id ?? null
+        : persistedState.activeWorkspaceId
+
+    return persistLayout({
+      activeWorkspaceId,
+      workspaces,
     })
   })
 

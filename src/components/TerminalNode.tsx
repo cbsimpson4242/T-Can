@@ -16,6 +16,7 @@ import type { ClipboardTextMode, TerminalNode as TerminalNodeModel } from '../..
 import { subscribeToTerminalOutput, subscribeToTerminalPaste, useTerminalExit } from '../lib/terminalEvents'
 
 const BASE_TERMINAL_FONT_SIZE = 13
+const PTY_RESIZE_DEBOUNCE_MS = 150
 
 interface ProjectedNodeRect {
   left: number
@@ -52,6 +53,9 @@ export function TerminalNode(props: TerminalNodeProps) {
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+  const lastSentTerminalSizeRef = useRef<{ cols: number; rows: number } | null>(null)
+  const resizeTimerRef = useRef<number | null>(null)
+  const resizeRafRef = useRef<number | null>(null)
   const [isReady, setIsReady] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const exitCode = useTerminalExit(sessionId)
@@ -73,6 +77,41 @@ export function TerminalNode(props: TerminalNodeProps) {
       focusTerminal()
     },
     [focusTerminal],
+  )
+
+  const sendTerminalResize = useCallback(
+    (terminal: Terminal, mode: 'immediate' | 'debounced' = 'debounced') => {
+      if (!sessionId) {
+        return
+      }
+
+      const size = { cols: terminal.cols, rows: terminal.rows }
+      const lastSentSize = lastSentTerminalSizeRef.current
+      if (lastSentSize?.cols === size.cols && lastSentSize.rows === size.rows) {
+        return
+      }
+
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current)
+        resizeTimerRef.current = null
+      }
+
+      const send = () => {
+        lastSentTerminalSizeRef.current = size
+        void window.tcan.resizeTerminal(sessionId, size.cols, size.rows)
+      }
+
+      if (mode === 'immediate') {
+        send()
+        return
+      }
+
+      resizeTimerRef.current = window.setTimeout(() => {
+        resizeTimerRef.current = null
+        send()
+      }, PTY_RESIZE_DEBOUNCE_MS)
+    },
+    [sessionId],
   )
 
   const pasteFromClipboard = useCallback(
@@ -123,6 +162,7 @@ export function TerminalNode(props: TerminalNodeProps) {
     terminal.loadAddon(fitAddon)
     terminal.open(host)
     fitAddon.fit()
+    sendTerminalResize(terminal, 'immediate')
     terminal.focus()
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
@@ -188,8 +228,6 @@ export function TerminalNode(props: TerminalNodeProps) {
     helperTextarea?.addEventListener('focus', handleFocus)
     helperTextarea?.addEventListener('blur', handleBlur)
 
-    void window.tcan.resizeTerminal(sessionId, terminal.cols, terminal.rows)
-
     let disposed = false
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
       terminal.write(data)
@@ -220,24 +258,44 @@ export function TerminalNode(props: TerminalNodeProps) {
       helperTextarea?.removeEventListener('focus', handleFocus)
       helperTextarea?.removeEventListener('blur', handleBlur)
       dataDisposable.dispose()
+      if (resizeTimerRef.current !== null) {
+        window.clearTimeout(resizeTimerRef.current)
+        resizeTimerRef.current = null
+      }
+      if (resizeRafRef.current !== null) {
+        window.cancelAnimationFrame(resizeRafRef.current)
+        resizeRafRef.current = null
+      }
       fitAddonRef.current = null
       terminalRef.current = null
       setIsReady(false)
       setIsFocused(false)
       terminal.dispose()
     }
-  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sessionId])
+  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {
       return
     }
 
-    terminalRef.current.options.fontSize = BASE_TERMINAL_FONT_SIZE * scale
-    fitAddonRef.current.fit()
-    const terminal = terminalRef.current
-    void window.tcan.resizeTerminal(sessionId, terminal.cols, terminal.rows)
-  }, [canvasRect.height, canvasRect.width, scale, sessionId])
+    if (resizeRafRef.current !== null) {
+      window.cancelAnimationFrame(resizeRafRef.current)
+    }
+
+    resizeRafRef.current = window.requestAnimationFrame(() => {
+      resizeRafRef.current = null
+      const terminal = terminalRef.current
+      const fitAddon = fitAddonRef.current
+      if (!terminal || !fitAddon) {
+        return
+      }
+
+      terminal.options.fontSize = BASE_TERMINAL_FONT_SIZE * scale
+      fitAddon.fit()
+      sendTerminalResize(terminal)
+    })
+  }, [canvasRect.height, canvasRect.width, scale, sendTerminalResize, sessionId])
 
   function handleAuxClick(event: ReactPointerEvent<HTMLElement>) {
     if (event.button !== 1) {

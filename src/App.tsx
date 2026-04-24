@@ -78,6 +78,7 @@ function App() {
   const [selectionBox, setSelectionBox] = useState<SelectionBox | null>(null)
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
+  const [closingWorkspaceId, setClosingWorkspaceId] = useState<string | null>(null)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
   const [isKillingTerminals, setIsKillingTerminals] = useState(false)
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
@@ -243,6 +244,38 @@ function App() {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to switch workspace.\n\n${message}`)
+    }
+  }
+
+  async function handleCloseWorkspace(workspaceId: string) {
+    const workspace = workspaces.find((entry) => entry.id === workspaceId)
+    if (!workspace) {
+      return
+    }
+
+    const terminalCount = workspaceId === activeWorkspaceId ? nodes.length : workspace.layout.nodes.length
+    const message = terminalCount
+      ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
+      : `Close workspace "${getWorkspaceName(workspace.path)}"?`
+
+    if (!window.confirm(message)) {
+      return
+    }
+
+    setClosingWorkspaceId(workspaceId)
+    try {
+      if (activeWorkspaceId) {
+        await getApi().saveLayout(layout)
+      }
+      const nextState = await getApi().closeWorkspace(workspaceId)
+      setWorkspaces(nextState.workspaces)
+      setActiveWorkspaceId(nextState.activeWorkspaceId)
+      await restoreWorkspaceLayout(getActiveWorkspace(nextState))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to close workspace.\n\n${message}`)
+    } finally {
+      setClosingWorkspaceId(null)
     }
   }
 
@@ -562,15 +595,33 @@ function App() {
             <span className="topbar__tab topbar__tab--active">NO WORKSPACE</span>
           ) : (
             workspaces.map((workspace) => (
-              <button
-                className={workspace.id === activeWorkspaceId ? 'topbar__tab topbar__tab--active' : 'topbar__tab'}
+              <span
+                className={workspace.id === activeWorkspaceId ? 'topbar__workspace topbar__workspace--active' : 'topbar__workspace'}
                 key={workspace.id}
-                onClick={() => void handleSwitchWorkspace(workspace.id)}
-                title={workspace.path}
-                type="button"
               >
-                {getWorkspaceName(workspace.path)}
-              </button>
+                <button
+                  className="topbar__tab"
+                  disabled={closingWorkspaceId === workspace.id}
+                  onClick={() => void handleSwitchWorkspace(workspace.id)}
+                  title={workspace.path}
+                  type="button"
+                >
+                  {getWorkspaceName(workspace.path)}
+                </button>
+                <button
+                  aria-label={`Close ${getWorkspaceName(workspace.path)} workspace`}
+                  className="topbar__workspace-close"
+                  disabled={closingWorkspaceId === workspace.id}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    void handleCloseWorkspace(workspace.id)
+                  }}
+                  title="Close workspace"
+                  type="button"
+                >
+                  ×
+                </button>
+              </span>
             ))
           )}
         </nav>

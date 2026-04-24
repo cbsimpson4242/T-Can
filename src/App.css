@@ -135,30 +135,60 @@ button:disabled {
   overflow-x: auto;
 }
 
-.topbar__tab {
+.topbar__workspace {
   flex: 0 0 auto;
-  border: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
   border-bottom: 1px solid transparent;
+  max-width: 220px;
+}
+
+.topbar__tab {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
   border-radius: 0;
   background: transparent;
   color: rgba(237, 242, 239, 0.48);
   font-size: 0.78rem;
   padding: 0.35rem 0.25rem;
-  max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-button.topbar__tab:hover:not(:disabled) {
+button.topbar__tab:hover:not(:disabled),
+.topbar__workspace-close:hover:not(:disabled) {
   background: transparent;
   border-color: rgba(88, 242, 161, 0.45);
   box-shadow: none;
   transform: none;
 }
 
-.topbar__tab--active {
+.topbar__workspace-close {
+  flex: 0 0 auto;
+  width: 1.35rem;
+  min-height: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: rgba(237, 242, 239, 0.5);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0.05rem 0;
+}
+
+.topbar__workspace-close:hover:not(:disabled) {
+  color: var(--danger);
+}
+
+.topbar__tab--active,
+.topbar__workspace--active .topbar__tab {
   color: var(--green);
+}
+
+.topbar__workspace--active {
   border-bottom-color: rgba(88, 242, 161, 0.75);
 }
 
