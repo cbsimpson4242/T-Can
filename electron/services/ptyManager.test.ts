@@ -126,6 +126,8 @@ describe('PtyManager', () => {
     expect(handle.writes).toEqual(['ls\n'])
     expect(handle.resizeCalls).toEqual([{ cols: 100, rows: 30 }])
     expect(outputListener).toHaveBeenCalledWith({ sessionId: session.sessionId, data: 'hello' })
+    expect(manager.listSessions()).toEqual([session])
+    expect(manager.getSession(session.sessionId)).toEqual({ info: session, output: 'hello' })
 
     manager.close(session.sessionId)
     expect(handle.killed).toBe(true)

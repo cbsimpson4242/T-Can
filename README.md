@@ -14,7 +14,9 @@ Features in this MVP:
 - pan the canvas with middle mouse, and zoom only while the keyboard Ctrl key is held plus the scroll wheel
 - drag and resize terminal nodes
 - persist workspace path and layout locally between launches
-- restore terminal layout and recreate fresh PTY sessions on relaunch
+- keep terminal sessions alive across renderer refreshes and app restarts via a local terminal daemon
+- reconnect terminal nodes to existing sessions and replay recent terminal output
+- explicitly kill one terminal, or use the in-app `KILL ALL` control to stop every T-CAN terminal
 
 Scripts:
 - npm run dev
@@ -22,10 +24,19 @@ Scripts:
 - npm run test
 - npm run lint
 - npm run start
+- npm run kill-terminals
 
 Install notes:
 - run `npm install` before first launch
 - the PTY backend uses a prebuilt native package to avoid a local C++ rebuild on normal installs
+
+Persistent terminal notes:
+- Terminal processes are owned by a local T-CAN daemon, not the renderer window.
+- Refreshing the frontend or closing/reopening the app reconnects to existing sessions when possible.
+- The close button on a terminal intentionally kills that terminal session.
+- Use `KILL ALL` in the app to stop all sessions.
+- If the UI is unavailable, run `npm run kill-terminals` as an emergency cleanup command.
+- The daemon exits automatically when the app quits and no terminal sessions remain.
 
 Windows notes:
 - terminal startup prefers PowerShell 7 (`pwsh.exe`), then Windows PowerShell, then `cmd.exe`
