@@ -2,8 +2,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
-import { createNodePtyBackend, PtyManager } from './services/ptyManager'
 import { JsonStore } from './services/jsonStore'
+import { TerminalDaemonClient } from './services/terminalDaemonClient'
 import {
   IPC_CHANNELS,
   createTerminalRequestSchema,
@@ -20,10 +20,7 @@ let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
 let store: JsonStore
 let persistedState: PersistedAppState
-
-const ptyManager = new PtyManager({
-  backend: createNodePtyBackend(),
-})
+let terminalDaemon: TerminalDaemonClient
 
 function isPointInsideBounds(point: Electron.Point, bounds: Electron.Rectangle): boolean {
   return (
@@ -83,10 +80,10 @@ function createMainWindow(): BrowserWindow {
   return window
 }
 
-function persistTerminalRegistry(): void {
+async function persistTerminalRegistry(): Promise<void> {
   try {
     const registryPath = path.join(app.getPath('userData'), 'terminal-pids.json')
-    const sessions = ptyManager.listSessions()
+    const sessions = await terminalDaemon.listSessions()
     fs.mkdirSync(path.dirname(registryPath), { recursive: true })
     fs.writeFileSync(registryPath, JSON.stringify({ sessions, updatedAt: new Date().toISOString() }, null, 2), 'utf8')
   } catch (error) {
@@ -150,37 +147,37 @@ function registerIpcHandlers(): void {
       workspacePath: persistedState.workspacePath,
       homePath: app.getPath('home'),
     })
-    const session = ptyManager.createSession({ ...request, cwd })
-    persistTerminalRegistry()
+    const session = await terminalDaemon.createSession({ ...request, cwd })
+    void persistTerminalRegistry()
     return session
   })
 
   ipcMain.handle(IPC_CHANNELS.getTerminalSession, async (_event, candidate) => {
     const request = terminalSessionSchema.parse(candidate)
-    return ptyManager.getSession(request.sessionId)
+    return terminalDaemon.getSession(request.sessionId)
   })
 
-  ipcMain.handle(IPC_CHANNELS.listTerminals, async () => ptyManager.listSessions())
+  ipcMain.handle(IPC_CHANNELS.listTerminals, async () => terminalDaemon.listSessions())
 
   ipcMain.handle(IPC_CHANNELS.writeTerminal, async (_event, candidate) => {
     const request = terminalWriteSchema.parse(candidate)
-    ptyManager.write(request.sessionId, request.data)
+    await terminalDaemon.write(request.sessionId, request.data)
   })
 
   ipcMain.handle(IPC_CHANNELS.resizeTerminal, async (_event, candidate) => {
     const request = terminalResizeSchema.parse(candidate)
-    ptyManager.resize(request.sessionId, request.cols, request.rows)
+    await terminalDaemon.resize(request.sessionId, request.cols, request.rows)
   })
 
   ipcMain.handle(IPC_CHANNELS.closeTerminal, async (_event, candidate) => {
     const request = terminalCloseSchema.parse(candidate)
-    ptyManager.close(request.sessionId)
-    persistTerminalRegistry()
+    await terminalDaemon.close(request.sessionId)
+    void persistTerminalRegistry()
   })
 
   ipcMain.handle(IPC_CHANNELS.closeAllTerminals, async () => {
-    ptyManager.disposeAll()
-    persistTerminalRegistry()
+    await terminalDaemon.closeAll()
+    void persistTerminalRegistry()
   })
 
   ipcMain.handle(IPC_CHANNELS.showTerminalContextMenu, async (event, candidate) => {
@@ -203,16 +200,20 @@ function registerIpcHandlers(): void {
 }
 
 function forwardPtyEvents(): void {
-  ptyManager.onOutput((event) => {
+  terminalDaemon.onOutput((event) => {
     mainWindow?.webContents.send(IPC_CHANNELS.terminalOutput, event)
   })
-  ptyManager.onExit((event) => {
-    persistTerminalRegistry()
+  terminalDaemon.onExit((event) => {
+    void persistTerminalRegistry()
     mainWindow?.webContents.send(IPC_CHANNELS.terminalExit, event)
   })
 }
 
 app.whenReady().then(() => {
+  terminalDaemon = new TerminalDaemonClient({
+    daemonPath: path.join(__dirname, 'terminal-daemon.cjs'),
+    statePath: path.join(app.getPath('userData'), 'terminal-daemon.json'),
+  })
   store = new JsonStore(path.join(app.getPath('userData'), 'app-state.json'))
   persistedState = store.load()
   registerIpcHandlers()
@@ -231,6 +232,6 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
-  ptyManager.disposeAll()
-  persistTerminalRegistry()
+  void terminalDaemon.shutdownIfIdle()
+  void persistTerminalRegistry()
 })

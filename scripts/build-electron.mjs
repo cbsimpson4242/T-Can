@@ -28,3 +28,4 @@ function createConfig(entry, fileName, emptyOutDir) {
 
 await build(createConfig('electron/main.ts', 'main', true))
 await build(createConfig('electron/preload.ts', 'preload', false))
+await build(createConfig('electron/terminalDaemon.ts', 'terminal-daemon', false))
