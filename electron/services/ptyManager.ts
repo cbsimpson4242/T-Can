@@ -123,6 +123,22 @@ export function resolveShellArgs(shell: string, platform = process.platform): st
   return []
 }
 
+function resolveSpawnCommand(request: CreateTerminalRequest, defaultShell: string, platform = process.platform) {
+  if (request.command) {
+    return {
+      file: request.command,
+      args: request.args ?? [],
+      label: request.command,
+    }
+  }
+
+  return {
+    file: defaultShell,
+    args: resolveShellArgs(defaultShell, platform),
+    label: defaultShell,
+  }
+}
+
 export function buildTerminalEnvironment(
   env: NodeJS.ProcessEnv,
   platform = process.platform,
@@ -174,13 +190,22 @@ export class PtyManager {
       cwd,
       env,
     }
-    let shell = this.defaultShell
+    let shell = request.command ?? this.defaultShell
     let handle: PtyHandle
 
     try {
-      handle = this.backend.spawn(shell, resolveShellArgs(shell, this.platform), spawnOptions)
+      const command = resolveSpawnCommand(request, this.defaultShell, this.platform)
+      shell = command.label
+      handle = this.backend.spawn(command.file, command.args, spawnOptions)
     } catch (error) {
-      if (this.platform !== 'win32') {
+      if (request.command) {
+        const reason = error instanceof Error ? error.message : String(error)
+        handle = createUnavailablePtyBackend(`Unable to launch ${request.command}: ${reason}`).spawn(
+          request.command,
+          request.args ?? [],
+          spawnOptions,
+        )
+      } else if (this.platform !== 'win32') {
         const reason = error instanceof Error ? error.message : String(error)
         handle = createUnavailablePtyBackend(`Unable to launch ${shell}: ${reason}`).spawn(
           shell,
@@ -217,6 +242,8 @@ export class PtyManager {
       sessionId,
       cwd,
       shell,
+      command: request.command,
+      args: request.args,
       pid: handle.pid,
     }
 

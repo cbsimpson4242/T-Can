@@ -16,6 +16,7 @@ import type {
 export interface TCanApi {
   getAppState(): Promise<PersistedAppState>
   openWorkspace(): Promise<PersistedAppState>
+  openSshWorkspace(target: string): Promise<PersistedAppState>
   switchWorkspace(workspaceId: string): Promise<PersistedAppState>
   closeWorkspace(workspaceId: string): Promise<PersistedAppState>
   listWorkspaceFiles(workspaceId: string, relativePath?: string): Promise<WorkspaceFileEntry[]>

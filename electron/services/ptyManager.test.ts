@@ -165,6 +165,33 @@ describe('PtyManager', () => {
     )
   })
 
+  it('can create a session from an explicit command and argument list', () => {
+    const handle = new FakePtyHandle()
+    const backend: PtyBackend = {
+      spawn: vi.fn(() => handle),
+    }
+
+    const manager = new PtyManager({
+      backend,
+      defaultShell: '/bin/bash',
+      env: { TEST_ENV: '1' },
+      platform: 'linux',
+    })
+
+    const session = manager.createSession({ cwd: '/tmp', command: 'ssh', args: ['user@example.com'] })
+
+    expect(session.shell).toBe('ssh')
+    expect(session.command).toBe('ssh')
+    expect(session.args).toEqual(['user@example.com'])
+    expect(backend.spawn).toHaveBeenCalledWith('ssh', ['user@example.com'], {
+      cols: 80,
+      cwd: '/tmp',
+      env: expect.objectContaining({ TEST_ENV: '1', TERM: 'xterm-256color' }),
+      name: 'xterm-256color',
+      rows: 24,
+    })
+  })
+
   it('falls back to cmd on Windows if the preferred shell fails to spawn', () => {
     const handle = new FakePtyHandle()
     const backend: PtyBackend = {

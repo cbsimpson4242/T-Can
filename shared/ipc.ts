@@ -14,6 +14,7 @@ export const terminalNodeSchema = canvasNodeBaseSchema.extend({
   type: z.literal('terminal').default('terminal'),
   sessionId: z.string().optional(),
   shell: z.string().optional(),
+  sshTarget: z.string().optional(),
 })
 
 export const editorNodeSchema = canvasNodeBaseSchema.extend({
@@ -38,6 +39,8 @@ export const persistedLayoutSchema = z.object({
 export const persistedWorkspaceSchema = z.object({
   id: z.string(),
   path: z.string(),
+  kind: z.enum(['local', 'ssh']).optional(),
+  sshTarget: z.string().optional(),
   layout: persistedLayoutSchema,
 })
 
@@ -57,6 +60,10 @@ export const workspaceRequestSchema = z.object({
   workspaceId: z.string(),
 })
 
+export const sshWorkspaceRequestSchema = z.object({
+  target: z.string().trim().min(1).max(255),
+})
+
 export const workspaceFileRequestSchema = z.object({
   workspaceId: z.string(),
   relativePath: z.string().optional().default(''),
@@ -70,6 +77,8 @@ export const workspaceFileSaveSchema = z.object({
 
 export const createTerminalRequestSchema = z.object({
   cwd: z.string().nullable().optional(),
+  command: z.string().optional(),
+  args: z.array(z.string()).optional(),
   cols: z.number().int().min(20).max(400).optional(),
   rows: z.number().int().min(5).max(200).optional(),
 })
@@ -106,6 +115,7 @@ export const IPC_CHANNELS = {
   getAppState: 'app:get-state',
   saveLayout: 'app:save-layout',
   openWorkspace: 'workspace:open-folder',
+  openSshWorkspace: 'workspace:open-ssh',
   switchWorkspace: 'workspace:switch',
   closeWorkspace: 'workspace:close',
   listWorkspaceFiles: 'workspace:list-files',
