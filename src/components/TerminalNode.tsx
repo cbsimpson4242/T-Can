@@ -77,15 +77,19 @@ export function TerminalNode(props: TerminalNodeProps) {
 
   const pasteFromClipboard = useCallback(
     async (mode: ClipboardTextMode, allowClipboardFallback = false) => {
-      let text = await window.tcan.readClipboardText(mode)
+      if (!sessionId) {
+        return
+      }
+
+      let text = await window.tcan.readClipboardForTerminal({ sessionId, mode })
 
       if (!text && allowClipboardFallback && mode !== 'clipboard') {
-        text = await window.tcan.readClipboardText('clipboard')
+        text = await window.tcan.readClipboardForTerminal({ sessionId, mode: 'clipboard' })
       }
 
       pasteText(text)
     },
-    [pasteText],
+    [pasteText, sessionId],
   )
 
   useEffect(() => {
@@ -159,7 +163,14 @@ export function TerminalNode(props: TerminalNodeProps) {
     const handlePaste = (event: ClipboardEvent) => {
       event.preventDefault()
       event.stopPropagation()
-      pasteText(event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? '')
+
+      const text = event.clipboardData?.getData('text/plain') ?? event.clipboardData?.getData('text') ?? ''
+      if (text) {
+        pasteText(text)
+        return
+      }
+
+      void pasteFromClipboard('clipboard')
     }
 
     const handleFocus = () => {

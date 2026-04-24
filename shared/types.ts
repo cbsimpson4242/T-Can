@@ -45,6 +45,11 @@ export interface CreateTerminalRequest {
 
 export type ClipboardTextMode = 'clipboard' | 'selection'
 
+export interface TerminalClipboardRequest {
+  sessionId: string
+  mode?: ClipboardTextMode
+}
+
 export interface TerminalOutputEvent {
   sessionId: string
   data: string

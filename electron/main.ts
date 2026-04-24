@@ -8,6 +8,7 @@ import {
   IPC_CHANNELS,
   createTerminalRequestSchema,
   persistedLayoutSchema,
+  terminalClipboardRequestSchema,
   terminalCloseSchema,
   terminalContextMenuSchema,
   terminalSessionSchema,
@@ -90,6 +91,61 @@ async function persistTerminalRegistry(): Promise<void> {
     const message = error instanceof Error ? error.stack ?? error.message : String(error)
     process.stderr.write(`[T-CAN] Failed to persist terminal registry: ${message}\n`)
   }
+}
+
+function formatTimestampForFilename(date = new Date()): string {
+  return date.toISOString().replace(/[:.]/g, '-').replace('T', '_').replace('Z', '')
+}
+
+function quotePathForTerminal(filePath: string): string {
+  return JSON.stringify(filePath.replace(/\\/g, '/'))
+}
+
+function saveClipboardImage(rootDirectory: string): string | null {
+  const image = clipboard.readImage()
+  if (image.isEmpty()) {
+    return null
+  }
+
+  const directory = path.join(rootDirectory, '.tcan-pasted-images')
+  fs.mkdirSync(directory, { recursive: true })
+
+  const filePath = path.join(directory, `screenshot-${formatTimestampForFilename()}.png`)
+  fs.writeFileSync(filePath, image.toPNG())
+  return filePath
+}
+
+async function readClipboardForTerminal(sessionId: string, mode: 'clipboard' | 'selection' = 'clipboard'): Promise<string> {
+  try {
+    const text = clipboard.readText(mode)
+    if (text || mode === 'selection') {
+      return text
+    }
+  } catch (error) {
+    if (mode === 'selection') {
+      return ''
+    }
+    throw error
+  }
+
+  const session = await terminalDaemon.getSession(sessionId)
+  const preferredRoot = session?.info.cwd ?? persistedState.workspacePath ?? app.getPath('pictures') ?? app.getPath('home')
+
+  try {
+    const imagePath = saveClipboardImage(preferredRoot)
+    if (imagePath) {
+      return quotePathForTerminal(imagePath)
+    }
+  } catch (error) {
+    const fallbackRoot = path.join(app.getPath('userData'), 'pasted-images')
+    const imagePath = saveClipboardImage(fallbackRoot)
+    if (imagePath) {
+      return quotePathForTerminal(imagePath)
+    }
+    throw error
+  }
+
+  return ''
 }
 
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
@@ -180,6 +236,11 @@ function registerIpcHandlers(): void {
     void persistTerminalRegistry()
   })
 
+  ipcMain.handle(IPC_CHANNELS.readClipboardForTerminal, async (_event, candidate) => {
+    const request = terminalClipboardRequestSchema.parse(candidate)
+    return readClipboardForTerminal(request.sessionId, request.mode)
+  })
+
   ipcMain.handle(IPC_CHANNELS.showTerminalContextMenu, async (event, candidate) => {
     const request = terminalContextMenuSchema.parse(candidate)
     const window = BrowserWindow.fromWebContents(event.sender) ?? undefined
@@ -187,9 +248,11 @@ function registerIpcHandlers(): void {
       {
         label: 'Paste',
         click: () => {
-          event.sender.send(IPC_CHANNELS.terminalPaste, {
-            sessionId: request.sessionId,
-            data: clipboard.readText(),
+          void readClipboardForTerminal(request.sessionId).then((data) => {
+            event.sender.send(IPC_CHANNELS.terminalPaste, {
+              sessionId: request.sessionId,
+              data,
+            })
           })
         },
       },

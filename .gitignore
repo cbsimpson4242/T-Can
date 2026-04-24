@@ -13,6 +13,7 @@ dist-electron
 dist-ssr
 *.local
 screenshot.html
+.tcan-pasted-images/
 
 # Editor directories and files
 .vscode/*

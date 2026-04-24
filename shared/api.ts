@@ -3,6 +3,7 @@ import type {
   CreateTerminalRequest,
   PersistedAppState,
   PersistedLayout,
+  TerminalClipboardRequest,
   TerminalExitEvent,
   TerminalOutputEvent,
   TerminalPasteEvent,
@@ -22,6 +23,7 @@ export interface TCanApi {
   closeTerminal(sessionId: string): Promise<void>
   closeAllTerminals(): Promise<void>
   readClipboardText(mode?: ClipboardTextMode): Promise<string>
+  readClipboardForTerminal(request: TerminalClipboardRequest): Promise<string>
   showTerminalContextMenu(sessionId: string): Promise<void>
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void

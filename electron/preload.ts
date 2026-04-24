@@ -44,6 +44,9 @@ const api: TCanApi = {
       return Promise.reject(error)
     }
   },
+  readClipboardForTerminal(request) {
+    return ipcRenderer.invoke(IPC_CHANNELS.readClipboardForTerminal, request)
+  },
   showTerminalContextMenu(sessionId) {
     return ipcRenderer.invoke(IPC_CHANNELS.showTerminalContextMenu, { sessionId })
   },

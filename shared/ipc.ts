@@ -56,6 +56,11 @@ export const terminalContextMenuSchema = z.object({
   sessionId: z.string(),
 })
 
+export const terminalClipboardRequestSchema = z.object({
+  sessionId: z.string(),
+  mode: z.enum(['clipboard', 'selection']).optional(),
+})
+
 export const IPC_CHANNELS = {
   getAppState: 'app:get-state',
   saveLayout: 'app:save-layout',
@@ -67,6 +72,7 @@ export const IPC_CHANNELS = {
   resizeTerminal: 'terminal:resize',
   closeTerminal: 'terminal:close',
   closeAllTerminals: 'terminal:close-all',
+  readClipboardForTerminal: 'terminal:read-clipboard',
   showTerminalContextMenu: 'terminal:show-context-menu',
   terminalOutput: 'terminal:output',
   terminalExit: 'terminal:exit',
