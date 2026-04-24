@@ -18,10 +18,20 @@ export interface TerminalNode extends CanvasNodeBase {
   sshTarget?: string
 }
 
+export interface EditorTab {
+  filePath: string
+  title: string
+  language?: string
+  pinned?: boolean
+}
+
 export interface EditorNode extends CanvasNodeBase {
   type: 'editor'
+  /** Legacy single-file path retained for older saved layouts. */
   filePath: string
   language?: string
+  tabs?: EditorTab[]
+  activeFilePath?: string
 }
 
 export type CanvasNode = TerminalNode | EditorNode
@@ -87,6 +97,22 @@ export interface WorkspaceFileReadResult {
   relativePath: string
   content: string
   mtimeMs: number
+}
+
+export interface WorkspaceFileMutationResult {
+  relativePath: string
+  entry?: WorkspaceFileEntry
+}
+
+export interface WorkspaceTextSearchMatch {
+  line: number
+  column: number
+  preview: string
+}
+
+export interface WorkspaceTextSearchResult {
+  relativePath: string
+  matches: WorkspaceTextSearchMatch[]
 }
 
 export type ClipboardTextMode = 'clipboard' | 'selection'

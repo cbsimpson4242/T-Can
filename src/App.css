@@ -535,6 +535,114 @@ button.topbar__tab:hover:not(:disabled),
   font-size: calc(0.63rem * var(--node-scale));
 }
 
+.editor-node__tabs {
+  min-height: 30px;
+  display: flex;
+  align-items: stretch;
+  gap: 0.2rem;
+  overflow-x: auto;
+  border-bottom: 1px solid rgba(116, 139, 135, 0.16);
+  background: rgba(5, 6, 7, 0.94);
+}
+
+.editor-node__tab {
+  flex: 0 0 auto;
+  min-width: 120px;
+  max-width: 260px;
+  display: inline-flex;
+  align-items: center;
+  border-right: 1px solid rgba(116, 139, 135, 0.12);
+  background: rgba(237, 242, 239, 0.025);
+}
+
+.editor-node__tab--active {
+  background: rgba(0, 241, 253, 0.12);
+  box-shadow: inset 0 -2px 0 var(--cyan);
+}
+
+.editor-node__tab-main,
+.editor-node__tab-action,
+.editor-node__toolbar button,
+.workspace-search__result button,
+.workspace-search__match {
+  min-height: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  transform: none;
+}
+
+.editor-node__tab-main {
+  min-width: 0;
+  flex: 1 1 auto;
+  padding: 0.35rem 0.45rem;
+  color: rgba(237, 242, 239, 0.76);
+  font-size: 0.66rem;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.editor-node__tab-main span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.editor-node__tab-action {
+  width: 20px;
+  padding: 0;
+  color: rgba(237, 242, 239, 0.42);
+  font-size: 0.72rem;
+}
+
+.editor-node__tab-action:hover:not(:disabled),
+.editor-node__tab-main:hover:not(:disabled),
+.editor-node__toolbar button:hover:not(:disabled),
+.workspace-search__result button:hover:not(:disabled),
+.workspace-search__match:hover:not(:disabled) {
+  background: rgba(237, 242, 239, 0.08);
+  box-shadow: none;
+  transform: none;
+}
+
+.editor-node__toolbar {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  padding: 0 0.45rem;
+  border-bottom: 1px solid rgba(116, 139, 135, 0.12);
+  background: rgba(10, 14, 15, 0.96);
+}
+
+.editor-node__toolbar button {
+  flex: 0 0 auto;
+  padding: 0.25rem 0.35rem;
+  color: rgba(237, 242, 239, 0.58);
+  font-size: 0.58rem;
+}
+
+.editor-node__breadcrumbs {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  gap: 0.25rem;
+  overflow: hidden;
+  color: rgba(237, 242, 239, 0.42);
+  font-size: 0.62rem;
+  white-space: nowrap;
+}
+
+.editor-node__breadcrumbs span:not(:last-child)::after {
+  content: '/';
+  margin-left: 0.25rem;
+  color: rgba(237, 242, 239, 0.22);
+}
+
 .editor-node__body {
   position: relative;
   min-height: 0;
@@ -652,7 +760,8 @@ button.topbar__tab:hover:not(:disabled),
 }
 
 .command-palette,
-.ssh-dialog {
+.ssh-dialog,
+.workspace-search {
   position: fixed;
   inset: 0;
   z-index: 20;
@@ -664,7 +773,8 @@ button.topbar__tab:hover:not(:disabled),
 }
 
 .command-palette__panel,
-.ssh-dialog__panel {
+.ssh-dialog__panel,
+.workspace-search__panel {
   width: min(620px, calc(100vw - 2rem));
   overflow: hidden;
   border: 1px solid rgba(88, 242, 161, 0.34);
@@ -675,7 +785,8 @@ button.topbar__tab:hover:not(:disabled),
 .command-palette__header,
 .command-palette__footer,
 .ssh-dialog__header,
-.ssh-dialog__actions {
+.ssh-dialog__actions,
+.workspace-search__header {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -713,6 +824,77 @@ button.topbar__tab:hover:not(:disabled),
 .command-palette__item span {
   color: rgba(237, 242, 239, 0.5);
   font-size: 0.72rem;
+}
+
+.workspace-search__fields,
+.ssh-dialog__fields {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+}
+
+.workspace-search__fields input {
+  width: 100%;
+  border: 1px solid rgba(88, 242, 161, 0.38);
+  border-radius: 6px;
+  background: rgba(5, 6, 7, 0.84);
+  color: var(--text);
+  font: inherit;
+  padding: 0.75rem 0.85rem;
+  outline: none;
+}
+
+.workspace-search__actions {
+  display: flex;
+  gap: 0.6rem;
+}
+
+.workspace-search__results {
+  max-height: 42vh;
+  overflow: auto;
+  padding: 0.5rem;
+  border-top: 1px solid rgba(116, 139, 135, 0.16);
+}
+
+.workspace-search__results p {
+  margin: 0;
+  padding: 0.75rem;
+  color: rgba(237, 242, 239, 0.48);
+}
+
+.workspace-search__result {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.4rem 0;
+}
+
+.workspace-search__result > button {
+  color: var(--cyan);
+  font-size: 0.72rem;
+  font-weight: 800;
+  padding: 0.35rem 0.45rem;
+  text-align: left;
+  text-transform: none;
+}
+
+.workspace-search__match {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 0.5rem;
+  padding: 0.3rem 0.45rem;
+  color: rgba(237, 242, 239, 0.68);
+  font-size: 0.68rem;
+  letter-spacing: 0;
+  text-align: left;
+  text-transform: none;
+}
+
+.workspace-search__match code {
+  overflow: hidden;
+  color: rgba(237, 242, 239, 0.82);
+  font-family: Cascadia Mono, Consolas, monospace;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ssh-dialog__fields {

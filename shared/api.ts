@@ -10,7 +10,9 @@ import type {
   TerminalSessionInfo,
   TerminalSessionSnapshot,
   WorkspaceFileEntry,
+  WorkspaceFileMutationResult,
   WorkspaceFileReadResult,
+  WorkspaceTextSearchResult,
 } from './types'
 
 export interface TCanApi {
@@ -22,6 +24,14 @@ export interface TCanApi {
   listWorkspaceFiles(workspaceId: string, relativePath?: string): Promise<WorkspaceFileEntry[]>
   readWorkspaceFile(workspaceId: string, relativePath: string): Promise<WorkspaceFileReadResult>
   saveWorkspaceFile(workspaceId: string, relativePath: string, content: string): Promise<WorkspaceFileReadResult>
+  createWorkspaceFile(workspaceId: string, relativePath: string, type: 'file' | 'directory'): Promise<WorkspaceFileMutationResult>
+  renameWorkspacePath(workspaceId: string, relativePath: string, nextRelativePath: string): Promise<WorkspaceFileMutationResult>
+  deleteWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
+  duplicateWorkspacePath(workspaceId: string, relativePath: string): Promise<WorkspaceFileMutationResult>
+  copyWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
+  revealWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
+  searchWorkspaceText(workspaceId: string, query: string): Promise<WorkspaceTextSearchResult[]>
+  replaceWorkspaceText(workspaceId: string, query: string, replacement: string): Promise<WorkspaceTextSearchResult[]>
   saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>

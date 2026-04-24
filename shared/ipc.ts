@@ -17,10 +17,19 @@ export const terminalNodeSchema = canvasNodeBaseSchema.extend({
   sshTarget: z.string().optional(),
 })
 
+export const editorTabSchema = z.object({
+  filePath: z.string(),
+  title: z.string(),
+  language: z.string().optional(),
+  pinned: z.boolean().optional(),
+})
+
 export const editorNodeSchema = canvasNodeBaseSchema.extend({
   type: z.literal('editor'),
   filePath: z.string(),
   language: z.string().optional(),
+  tabs: z.array(editorTabSchema).optional(),
+  activeFilePath: z.string().optional(),
 })
 
 export const canvasNodeSchema = z.union([terminalNodeSchema, editorNodeSchema])
@@ -75,6 +84,27 @@ export const workspaceFileSaveSchema = z.object({
   content: z.string(),
 })
 
+export const workspaceFileCreateSchema = z.object({
+  workspaceId: z.string(),
+  relativePath: z.string().trim().min(1),
+  type: z.enum(['file', 'directory']),
+})
+
+export const workspacePathRenameSchema = z.object({
+  workspaceId: z.string(),
+  relativePath: z.string().trim().min(1),
+  nextRelativePath: z.string().trim().min(1),
+})
+
+export const workspaceTextSearchSchema = z.object({
+  workspaceId: z.string(),
+  query: z.string(),
+})
+
+export const workspaceTextReplaceSchema = workspaceTextSearchSchema.extend({
+  replacement: z.string(),
+})
+
 export const createTerminalRequestSchema = z.object({
   cwd: z.string().nullable().optional(),
   command: z.string().optional(),
@@ -121,6 +151,14 @@ export const IPC_CHANNELS = {
   listWorkspaceFiles: 'workspace:list-files',
   readWorkspaceFile: 'workspace:read-file',
   saveWorkspaceFile: 'workspace:save-file',
+  createWorkspaceFile: 'workspace:create-path',
+  renameWorkspacePath: 'workspace:rename-path',
+  deleteWorkspacePath: 'workspace:delete-path',
+  duplicateWorkspacePath: 'workspace:duplicate-path',
+  copyWorkspacePath: 'workspace:copy-path',
+  revealWorkspacePath: 'workspace:reveal-path',
+  searchWorkspaceText: 'workspace:search-text',
+  replaceWorkspaceText: 'workspace:replace-text',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',

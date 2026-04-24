@@ -8,6 +8,12 @@ interface FileExplorerProps {
   workspaceName: string | null
   onOpenFile(relativePath: string): void
   onRefresh(): void
+  onCreatePath(parentPath: string, type: 'file' | 'directory'): void
+  onRenamePath(relativePath: string): void
+  onDeletePath(relativePath: string): void
+  onDuplicatePath(relativePath: string): void
+  onCopyPath(relativePath: string): void
+  onRevealPath(relativePath: string): void
 }
 
 function getFileIcon(name: string): { className: string; label: string } {
@@ -49,6 +55,19 @@ function getFileIcon(name: string): { className: string; label: string } {
   }
 }
 
+function findEntry(entries: WorkspaceFileEntry[], relativePath: string): WorkspaceFileEntry | null {
+  for (const entry of entries) {
+    if (entry.relativePath === relativePath) {
+      return entry
+    }
+    const childEntry = entry.children ? findEntry(entry.children, relativePath) : null
+    if (childEntry) {
+      return childEntry
+    }
+  }
+  return null
+}
+
 function FileEntryView(props: {
   entry: WorkspaceFileEntry
   depth: number
@@ -56,8 +75,9 @@ function FileEntryView(props: {
   selectedPath: string | null
   onOpenFile(relativePath: string): void
   onToggleDirectory(relativePath: string): void
+  onSelectPath(relativePath: string): void
 }) {
-  const { entry, depth, expandedPaths, selectedPath, onOpenFile, onToggleDirectory } = props
+  const { entry, depth, expandedPaths, selectedPath, onOpenFile, onToggleDirectory, onSelectPath } = props
   const isDirectory = entry.type === 'directory'
   const isExpanded = isDirectory && expandedPaths.has(entry.relativePath)
   const fileIcon = isDirectory ? null : getFileIcon(entry.name)
@@ -74,6 +94,7 @@ function FileEntryView(props: {
       <button
         className={className}
         onClick={() => {
+          onSelectPath(entry.relativePath)
           if (isDirectory) {
             onToggleDirectory(entry.relativePath)
           } else {
@@ -101,6 +122,7 @@ function FileEntryView(props: {
               selectedPath={selectedPath}
               onOpenFile={onOpenFile}
               onToggleDirectory={onToggleDirectory}
+              onSelectPath={onSelectPath}
             />
           ))}
         </ul>
@@ -110,7 +132,20 @@ function FileEntryView(props: {
 }
 
 export function FileExplorer(props: FileExplorerProps) {
-  const { entries, loading, remote = false, workspaceName, onOpenFile, onRefresh } = props
+  const {
+    entries,
+    loading,
+    remote = false,
+    workspaceName,
+    onOpenFile,
+    onRefresh,
+    onCreatePath,
+    onRenamePath,
+    onDeletePath,
+    onDuplicatePath,
+    onCopyPath,
+    onRevealPath,
+  } = props
   const bodyRef = useRef<HTMLDivElement | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
@@ -134,6 +169,21 @@ export function FileExplorer(props: FileExplorerProps) {
   function handleOpenFile(relativePath: string) {
     setSelectedPath(relativePath)
     onOpenFile(relativePath)
+  }
+
+  function getParentForCreate(): string {
+    if (!selectedPath) {
+      return ''
+    }
+    const entry = findEntry(entries, selectedPath)
+    if (entry?.type === 'directory') {
+      return selectedPath
+    }
+    return selectedPath.split('/').slice(0, -1).join('/')
+  }
+
+  function canMutateSelectedPath(): boolean {
+    return Boolean(workspaceName && !loading && !remote && selectedPath)
   }
 
   function collapseAll() {
@@ -173,8 +223,13 @@ export function FileExplorer(props: FileExplorerProps) {
       <header className="file-explorer__header">
         <span className="file-explorer__eyebrow">EXPLORER</span>
         <div className="file-explorer__actions" aria-label="Explorer actions">
-          <button className="file-explorer__action" disabled title="New file" type="button">＋</button>
-          <button className="file-explorer__action" disabled title="New folder" type="button">▣</button>
+          <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={() => onCreatePath(getParentForCreate(), 'file')} title="New file" type="button">＋</button>
+          <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={() => onCreatePath(getParentForCreate(), 'directory')} title="New folder" type="button">▣</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onRenamePath(selectedPath)} title="Rename selected" type="button">✎</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onDeletePath(selectedPath)} title="Delete selected" type="button">⌫</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onDuplicatePath(selectedPath)} title="Duplicate selected" type="button">⧉</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onCopyPath(selectedPath)} title="Copy full path" type="button">⎘</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onRevealPath(selectedPath)} title="Reveal in system explorer" type="button">↗</button>
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={onRefresh} title="Refresh explorer" type="button">↻</button>
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={collapseAll} title="Collapse folders" type="button">⇤</button>
         </div>
@@ -201,6 +256,7 @@ export function FileExplorer(props: FileExplorerProps) {
                     selectedPath={selectedPath}
                     onOpenFile={handleOpenFile}
                     onToggleDirectory={toggleDirectory}
+                    onSelectPath={setSelectedPath}
                   />
                 ))}
               </ul>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
+import type { CanvasNode, EditorTab, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry, WorkspaceTextSearchResult } from '../shared/types'
 import { CommandPalette } from './components/CommandPalette'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
@@ -30,6 +30,13 @@ interface CanvasContextMenuState {
   y: number
 }
 
+interface WorkspaceSearchState {
+  query: string
+  replacement: string
+  results: WorkspaceTextSearchResult[]
+  searching: boolean
+}
+
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const SELECTION_DRAG_THRESHOLD = 4
 
@@ -39,6 +46,18 @@ function getWorkspaceName(workspacePath: string): string {
   }
 
   return workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? workspacePath
+}
+
+function getFileTitle(filePath: string): string {
+  return filePath.split(/[\\/]/).pop() || filePath
+}
+
+function createEditorTab(filePath: string): EditorTab {
+  return { filePath, title: getFileTitle(filePath) }
+}
+
+function joinWorkspacePath(parentPath: string, name: string): string {
+  return [parentPath, name].filter(Boolean).join('/').replace(/\\/g, '/')
 }
 
 function getActiveWorkspace(state: Pick<PersistedAppState, 'activeWorkspaceId' | 'workspaces'>): PersistedWorkspace | null {
@@ -93,6 +112,12 @@ function App() {
   const [isKillingTerminals, setIsKillingTerminals] = useState(false)
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
   const [fileEntries, setFileEntries] = useState<WorkspaceFileEntry[]>([])
+  const [dirtyEditorPathsByNode, setDirtyEditorPathsByNode] = useState<Record<string, string[]>>({})
+  const [saveSignal, setSaveSignal] = useState(0)
+  const [saveAllSignal, setSaveAllSignal] = useState(0)
+  const [autoSave, setAutoSave] = useState(false)
+  const [isWorkspaceSearchOpen, setIsWorkspaceSearchOpen] = useState(false)
+  const [workspaceSearch, setWorkspaceSearch] = useState<WorkspaceSearchState>({ query: '', replacement: '', results: [], searching: false })
   const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false)
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
   const [sshHostInput, setSshHostInput] = useState('example.com')
@@ -102,6 +127,11 @@ function App() {
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
+  const dirtyEditorPathCount = useMemo(
+    () => Object.values(dirtyEditorPathsByNode).reduce((count, paths) => count + paths.length, 0),
+    [dirtyEditorPathsByNode],
+  )
+  const terminalNodeCount = useMemo(() => nodes.filter((node) => node.type !== 'editor').length, [nodes])
 
   const layout = useMemo<PersistedLayout>(
     () => ({
@@ -117,6 +147,8 @@ function App() {
             height: node.height,
             filePath: node.filePath,
             language: node.language,
+            tabs: node.tabs,
+            activeFilePath: node.activeFilePath,
           }
         }
 
@@ -145,12 +177,14 @@ function App() {
         setViewport(DEFAULT_VIEWPORT)
         setNodes([])
         setSelectedNodeIds([])
+        setDirtyEditorPathsByNode({})
         return
       }
 
       const api = getApi()
       setViewport(workspace.layout.viewport)
       setSelectedNodeIds([])
+      setDirtyEditorPathsByNode({})
 
       const restoredNodes = await Promise.all(
         workspace.layout.nodes.map(async (node) => {
@@ -183,12 +217,27 @@ function App() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === 'p') {
+      const usesCommandModifier = event.ctrlKey || event.metaKey
+      if (usesCommandModifier && event.shiftKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         setIsCommandPaletteOpen(true)
         return
       }
 
+      if (usesCommandModifier && event.shiftKey && event.key.toLowerCase() === 'f') {
+        event.preventDefault()
+        setIsWorkspaceSearchOpen(true)
+        return
+      }
+
+      if (usesCommandModifier && event.key.toLowerCase() === 's') {
+        event.preventDefault()
+        if (event.shiftKey) {
+          setSaveAllSignal((current) => current + 1)
+        } else {
+          setSaveSignal((current) => current + 1)
+        }
+      }
     }
 
     window.addEventListener('keydown', handleKeyDown)
@@ -197,6 +246,19 @@ function App() {
       window.removeEventListener('keydown', handleKeyDown)
     }
   }, [])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (dirtyEditorPathCount === 0) {
+        return
+      }
+      event.preventDefault()
+      event.returnValue = ''
+    }
+
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [dirtyEditorPathCount])
 
   useEffect(() => {
     if (!canvasContextMenu) {
@@ -276,9 +338,18 @@ function App() {
   }
 
   function handleOpenFileFromExplorer(relativePath: string) {
-    const existingNode = nodes.find((node) => node.type === 'editor' && node.filePath === relativePath)
-    if (existingNode) {
+    const existingNode = nodes.find((node) => node.type === 'editor' && (node.filePath === relativePath || node.tabs?.some((tab) => tab.filePath === relativePath)))
+    if (existingNode?.type === 'editor') {
+      handleEditorTabsChange(existingNode.id, existingNode.tabs ?? [createEditorTab(existingNode.filePath)], relativePath)
       setSelectedNodeIds([existingNode.id])
+      return
+    }
+
+    const selectedEditor = nodes.find((node) => node.type === 'editor' && selectedNodeIdSet.has(node.id))
+    if (selectedEditor?.type === 'editor') {
+      const tabs = selectedEditor.tabs ?? [createEditorTab(selectedEditor.filePath)]
+      const nextTabs = tabs.some((tab) => tab.filePath === relativePath) ? tabs : [...tabs, createEditorTab(relativePath)]
+      handleEditorTabsChange(selectedEditor.id, nextTabs, relativePath)
       return
     }
 
@@ -290,6 +361,113 @@ function App() {
     const node = createEditorNode(getViewportCenterWorldPoint(viewport, bounds), relativePath)
     setNodes((current) => [...current, node])
     setSelectedNodeIds([node.id])
+  }
+
+  async function mutateWorkspaceFiles(action: () => Promise<void>) {
+    try {
+      await action()
+      await refreshFileTree()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Workspace file operation failed.\n\n${message}`)
+    }
+  }
+
+  function promptForChildPath(parentPath: string, type: 'file' | 'directory'): string | null {
+    const label = type === 'directory' ? 'folder' : 'file'
+    const name = window.prompt(`New ${label} name`, type === 'directory' ? 'new-folder' : 'new-file.txt')?.trim()
+    if (!name) {
+      return null
+    }
+    return joinWorkspacePath(parentPath, name)
+  }
+
+  function handleCreateWorkspacePath(parentPath: string, type: 'file' | 'directory') {
+    if (!activeWorkspaceId) {
+      return
+    }
+    const relativePath = promptForChildPath(parentPath, type)
+    if (!relativePath) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      await getApi().createWorkspaceFile(activeWorkspaceId, relativePath, type)
+      if (type === 'file') {
+        handleOpenFileFromExplorer(relativePath)
+      }
+    })
+  }
+
+  function handleRenameWorkspacePath(relativePath: string) {
+    if (!activeWorkspaceId) {
+      return
+    }
+    const nextRelativePath = window.prompt('Rename path', relativePath)?.trim()
+    if (!nextRelativePath || nextRelativePath === relativePath) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      await getApi().renameWorkspacePath(activeWorkspaceId, relativePath, nextRelativePath)
+      setNodes((current) => current.map((node) => {
+        if (node.type !== 'editor') {
+          return node
+        }
+        const tabs = (node.tabs ?? [createEditorTab(node.filePath)]).map((tab) => (
+          tab.filePath === relativePath ? { ...tab, filePath: nextRelativePath, title: getFileTitle(nextRelativePath) } : tab
+        ))
+        return {
+          ...node,
+          filePath: node.filePath === relativePath ? nextRelativePath : node.filePath,
+          title: node.filePath === relativePath ? getFileTitle(nextRelativePath) : node.title,
+          tabs,
+          activeFilePath: node.activeFilePath === relativePath ? nextRelativePath : node.activeFilePath,
+        }
+      }))
+    })
+  }
+
+  function handleDeleteWorkspacePath(relativePath: string) {
+    const hasUnsavedOpenFile = Object.values(dirtyEditorPathsByNode).some((paths) => paths.includes(relativePath))
+    if (hasUnsavedOpenFile && !window.confirm(`${relativePath} has unsaved edits in an open editor. Delete it anyway?`)) {
+      return
+    }
+    if (!activeWorkspaceId || !window.confirm(`Delete ${relativePath}? This cannot be undone.`)) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      await getApi().deleteWorkspacePath(activeWorkspaceId, relativePath)
+      setNodes((current) => current.filter((node) => node.type !== 'editor' || (node.filePath !== relativePath && !node.tabs?.some((tab) => tab.filePath === relativePath))))
+    })
+  }
+
+  function handleDuplicateWorkspacePath(relativePath: string) {
+    if (!activeWorkspaceId) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      const result = await getApi().duplicateWorkspacePath(activeWorkspaceId, relativePath)
+      if (result.entry?.type === 'file') {
+        handleOpenFileFromExplorer(result.relativePath)
+      }
+    })
+  }
+
+  function handleCopyWorkspacePath(relativePath: string) {
+    if (!activeWorkspaceId) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      await getApi().copyWorkspacePath(activeWorkspaceId, relativePath)
+    })
+  }
+
+  function handleRevealWorkspacePath(relativePath: string) {
+    if (!activeWorkspaceId) {
+      return
+    }
+    void mutateWorkspaceFiles(async () => {
+      await getApi().revealWorkspacePath(activeWorkspaceId, relativePath)
+    })
   }
 
   useEffect(() => {
@@ -309,7 +487,15 @@ function App() {
     void getApi().saveLayout(layout)
   }, [activeWorkspaceId, isBootstrapping, layout])
 
+  function confirmDiscardUnsavedChanges(action: string): boolean {
+    return dirtyEditorPathCount === 0 || window.confirm(`${action} with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}? Unsaved edits will be discarded.`)
+  }
+
   async function handleOpenWorkspace() {
+    if (!confirmDiscardUnsavedChanges('Open another workspace')) {
+      return
+    }
+
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
@@ -356,6 +542,10 @@ function App() {
   }
 
   async function handleOpenSshWorkspace(target: string, password = '') {
+    if (!confirmDiscardUnsavedChanges('Open SSH workspace')) {
+      return
+    }
+
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
@@ -389,6 +579,10 @@ function App() {
       return
     }
 
+    if (!confirmDiscardUnsavedChanges('Switch workspaces')) {
+      return
+    }
+
     try {
       if (activeWorkspaceId) {
         await getApi().saveLayout(layout)
@@ -409,10 +603,16 @@ function App() {
       return
     }
 
-    const terminalCount = workspaceId === activeWorkspaceId ? nodes.length : workspace.layout.nodes.length
+    const terminalCount = workspaceId === activeWorkspaceId
+      ? terminalNodeCount
+      : workspace.layout.nodes.filter((node) => node.type !== 'editor').length
     const message = terminalCount
       ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
       : `Close workspace "${getWorkspaceName(workspace.path)}"?`
+
+    if (workspaceId === activeWorkspaceId && dirtyEditorPathCount > 0 && !window.confirm(`Close workspace with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}?`)) {
+      return
+    }
 
     if (!window.confirm(message)) {
       return
@@ -467,7 +667,55 @@ function App() {
     }
   }
 
+  function handleEditorDirtyChange(nodeId: string, dirtyPaths: string[]) {
+    setDirtyEditorPathsByNode((current) => {
+      const currentPaths = current[nodeId] ?? []
+      const isUnchanged = currentPaths.length === dirtyPaths.length && currentPaths.every((filePath, index) => filePath === dirtyPaths[index])
+      if (isUnchanged) {
+        return current
+      }
+      if (dirtyPaths.length === 0) {
+        const next = { ...current }
+        delete next[nodeId]
+        return next
+      }
+      return { ...current, [nodeId]: dirtyPaths }
+    })
+  }
+
+  function handleEditorTabsChange(nodeId: string, tabs: EditorTab[], activeFilePath: string) {
+    const activeTab = tabs.find((tab) => tab.filePath === activeFilePath) ?? tabs[0]
+    setNodes((current) => current.map((node) => {
+      if (node.id !== nodeId || node.type !== 'editor') {
+        return node
+      }
+      return {
+        ...node,
+        title: activeTab?.title ?? node.title,
+        filePath: activeTab?.filePath ?? node.filePath,
+        language: activeTab?.language ?? node.language,
+        tabs,
+        activeFilePath: activeTab?.filePath ?? activeFilePath,
+      }
+    }))
+    setSelectedNodeIds([nodeId])
+  }
+
+  function handleSplitEditor(filePath: string) {
+    const sourceNode = nodes.find((node) => node.type === 'editor' && selectedNodeIdSet.has(node.id))
+    const position = sourceNode ? { x: sourceNode.x + 40, y: sourceNode.y + 40 } : null
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    const node = createEditorNode(position ?? (bounds ? getViewportCenterWorldPoint(viewport, bounds) : { x: 80, y: 80 }), filePath)
+    setNodes((current) => [...current, node])
+    setSelectedNodeIds([node.id])
+  }
+
   async function removeNode(nodeId: string) {
+    const dirtyPaths = dirtyEditorPathsByNode[nodeId] ?? []
+    if (dirtyPaths.length > 0 && !window.confirm(`Close editor with ${dirtyPaths.length} unsaved file${dirtyPaths.length === 1 ? '' : 's'}?`)) {
+      return
+    }
+
     setNodes((current) => {
       const node = current.find((entry) => entry.id === nodeId)
       if (node?.type === 'terminal' && node.sessionId) {
@@ -475,19 +723,25 @@ function App() {
       }
       return current.filter((entry) => entry.id !== nodeId)
     })
+    setDirtyEditorPathsByNode((current) => {
+      const next = { ...current }
+      delete next[nodeId]
+      return next
+    })
     setSelectedNodeIds((current) => current.filter((entry) => entry !== nodeId))
   }
 
   async function handleKillAllTerminals() {
-    if (!nodes.length || !window.confirm('Kill all running T-CAN terminals? This will stop any agents/processes inside them.')) {
+    const terminalNodeIds = nodes.filter((node) => node.type !== 'editor').map((node) => node.id)
+    if (!terminalNodeIds.length || !window.confirm('Kill all running T-CAN terminals? This will stop any agents/processes inside them.')) {
       return
     }
 
     setIsKillingTerminals(true)
     try {
       await getApi().closeAllTerminals()
-      setNodes([])
-      setSelectedNodeIds([])
+      setNodes((current) => current.filter((node) => node.type === 'editor'))
+      setSelectedNodeIds((current) => current.filter((nodeId) => !terminalNodeIds.includes(nodeId)))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to kill terminals.\n\n${message}`)
@@ -747,6 +1001,42 @@ function App() {
     window.addEventListener('pointercancel', stop)
   }
 
+  async function runWorkspaceSearch() {
+    if (!activeWorkspaceId || !workspaceSearch.query) {
+      return
+    }
+    setWorkspaceSearch((current) => ({ ...current, searching: true }))
+    try {
+      const results = await getApi().searchWorkspaceText(activeWorkspaceId, workspaceSearch.query)
+      setWorkspaceSearch((current) => ({ ...current, results }))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Workspace search failed.\n\n${message}`)
+    } finally {
+      setWorkspaceSearch((current) => ({ ...current, searching: false }))
+    }
+  }
+
+  async function runWorkspaceReplace() {
+    if (!activeWorkspaceId || !workspaceSearch.query) {
+      return
+    }
+    if (!window.confirm(`Replace all occurrences of "${workspaceSearch.query}" across the workspace?`)) {
+      return
+    }
+    setWorkspaceSearch((current) => ({ ...current, searching: true }))
+    try {
+      const results = await getApi().replaceWorkspaceText(activeWorkspaceId, workspaceSearch.query, workspaceSearch.replacement)
+      setWorkspaceSearch((current) => ({ ...current, results }))
+      await refreshFileTree()
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Workspace replace failed.\n\n${message}`)
+    } finally {
+      setWorkspaceSearch((current) => ({ ...current, searching: false }))
+    }
+  }
+
   const commandPaletteCommands = [
     {
       id: 'open-workspace',
@@ -770,6 +1060,33 @@ function App() {
       run: () => void handleCreateTerminal(),
     },
     {
+      id: 'save-active-file',
+      label: 'Save active file',
+      description: 'Save the selected editor tab (Ctrl/⌘+S).',
+      disabled: dirtyEditorPathCount === 0,
+      run: () => setSaveSignal((current) => current + 1),
+    },
+    {
+      id: 'save-all-files',
+      label: 'Save all files',
+      description: 'Save every dirty editor tab (Ctrl/⌘+Shift+S).',
+      disabled: dirtyEditorPathCount === 0,
+      run: () => setSaveAllSignal((current) => current + 1),
+    },
+    {
+      id: 'toggle-autosave',
+      label: autoSave ? 'Disable auto-save' : 'Enable auto-save',
+      description: 'Automatically save dirty editor tabs shortly after edits.',
+      run: () => setAutoSave((current) => !current),
+    },
+    {
+      id: 'workspace-search',
+      label: 'Workspace search / replace',
+      description: 'Search and replace text across the active workspace.',
+      disabled: !activeWorkspaceId || activeWorkspace?.kind === 'ssh',
+      run: () => setIsWorkspaceSearchOpen(true),
+    },
+    {
       id: 'refresh-files',
       label: 'Refresh file explorer',
       description: 'Reload the active workspace file tree.',
@@ -780,7 +1097,7 @@ function App() {
       id: 'kill-terminals',
       label: 'Kill all terminals',
       description: 'Stop every running T-CAN terminal session.',
-      disabled: isKillingTerminals || nodes.length === 0,
+      disabled: isKillingTerminals || terminalNodeCount === 0,
       run: () => void handleKillAllTerminals(),
     },
   ]
@@ -837,6 +1154,57 @@ function App() {
         onClose={() => setIsCommandPaletteOpen(false)}
         open={isCommandPaletteOpen}
       />
+      {isWorkspaceSearchOpen && (
+        <div className="workspace-search" role="presentation" onMouseDown={() => setIsWorkspaceSearchOpen(false)}>
+          <section className="workspace-search__panel" aria-label="Workspace search" onMouseDown={(event) => event.stopPropagation()}>
+            <header className="workspace-search__header">
+              <strong>WORKSPACE SEARCH</strong>
+              <button className="icon-button" onClick={() => setIsWorkspaceSearchOpen(false)} type="button">x</button>
+            </header>
+            <div className="workspace-search__fields">
+              <input
+                autoFocus
+                onChange={(event) => setWorkspaceSearch((current) => ({ ...current, query: event.target.value }))}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    void runWorkspaceSearch()
+                  }
+                }}
+                placeholder="Find text across workspace"
+                value={workspaceSearch.query}
+              />
+              <input
+                onChange={(event) => setWorkspaceSearch((current) => ({ ...current, replacement: event.target.value }))}
+                placeholder="Replacement text"
+                value={workspaceSearch.replacement}
+              />
+              <div className="workspace-search__actions">
+                <button className="command-button" disabled={!workspaceSearch.query || workspaceSearch.searching} onClick={() => void runWorkspaceSearch()} type="button">
+                  {workspaceSearch.searching ? 'SEARCHING...' : 'Search'}
+                </button>
+                <button className="command-button command-button--danger" disabled={!workspaceSearch.query || workspaceSearch.searching} onClick={() => void runWorkspaceReplace()} type="button">
+                  Replace all
+                </button>
+              </div>
+            </div>
+            <div className="workspace-search__results">
+              {workspaceSearch.results.length === 0 ? (
+                <p>No results.</p>
+              ) : workspaceSearch.results.map((result) => (
+                <section className="workspace-search__result" key={result.relativePath}>
+                  <button onClick={() => handleOpenFileFromExplorer(result.relativePath)} type="button">{result.relativePath}</button>
+                  {result.matches.slice(0, 8).map((match) => (
+                    <button className="workspace-search__match" key={`${result.relativePath}-${match.line}-${match.column}`} onClick={() => handleOpenFileFromExplorer(result.relativePath)} type="button">
+                      <span>{match.line}:{match.column}</span>
+                      <code>{match.preview}</code>
+                    </button>
+                  ))}
+                </section>
+              ))}
+            </div>
+          </section>
+        </div>
+      )}
       {isSshDialogOpen && (
         <div className="ssh-dialog" role="presentation" onMouseDown={closeSshDialog}>
           <form className="ssh-dialog__panel" aria-label="Open SSH workspace" onMouseDown={(event) => event.stopPropagation()} onSubmit={(event) => void handleSshDialogSubmit(event)}>
@@ -931,6 +1299,15 @@ function App() {
           <button className="command-button" onClick={() => setIsCommandPaletteOpen(true)} type="button">
             COMMANDS
           </button>
+          <button className="command-button" disabled={dirtyEditorPathCount === 0} onClick={() => setSaveAllSignal((current) => current + 1)} type="button">
+            SAVE ALL
+          </button>
+          <button className="command-button" onClick={() => setAutoSave((current) => !current)} type="button">
+            AUTOSAVE {autoSave ? 'ON' : 'OFF'}
+          </button>
+          <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={() => setIsWorkspaceSearchOpen(true)} type="button">
+            SEARCH
+          </button>
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
@@ -947,11 +1324,11 @@ function App() {
           </button>
           <button
             className="command-button command-button--danger"
-            disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
+            disabled={isBootstrapping || isKillingTerminals || terminalNodeCount === 0}
             onClick={() => void handleKillAllTerminals()}
             type="button"
           >
-            {isKillingTerminals ? 'KILLING...' : `KILL ALL (${nodes.length})`}
+            {isKillingTerminals ? 'KILLING...' : `KILL ALL (${terminalNodeCount})`}
           </button>
         </div>
       </header>
@@ -960,8 +1337,14 @@ function App() {
         <FileExplorer
           entries={fileEntries}
           loading={isLoadingFiles}
+          onCopyPath={handleCopyWorkspacePath}
+          onCreatePath={handleCreateWorkspacePath}
+          onDeletePath={handleDeleteWorkspacePath}
+          onDuplicatePath={handleDuplicateWorkspacePath}
           onOpenFile={handleOpenFileFromExplorer}
           onRefresh={() => void refreshFileTree()}
+          onRenamePath={handleRenameWorkspacePath}
+          onRevealPath={handleRevealWorkspacePath}
           remote={activeWorkspace?.kind === 'ssh'}
           workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
         />
@@ -1004,10 +1387,16 @@ function App() {
                         height: canvasRect.bottom - canvasRect.top,
                       }}
                       node={node}
+                      autoSave={autoSave}
                       onClose={() => void removeNode(node.id)}
+                      onDirtyChange={handleEditorDirtyChange}
                       onMoveStart={(event) => beginNodeMove(node.id, event)}
                       onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
                       onSelect={(event) => handleNodeSelect(node.id, event)}
+                      onSplit={handleSplitEditor}
+                      onTabsChange={handleEditorTabsChange}
+                      saveAllSignal={saveAllSignal}
+                      saveSignal={saveSignal}
                       scale={viewport.scale}
                       selected={selectedNodeIdSet.has(node.id)}
                       workspaceId={activeWorkspaceId}
@@ -1075,18 +1464,18 @@ function App() {
                   {isCreatingTerminal ? 'Creating terminal...' : 'New terminal'}
                 </button>
                 <button
-                  disabled={isBootstrapping || isKillingTerminals || nodes.length === 0}
+                  disabled={isBootstrapping || isKillingTerminals || terminalNodeCount === 0}
                   onClick={() => runCanvasContextCommand(() => void handleKillAllTerminals())}
                   role="menuitem"
                   type="button"
                 >
-                  {isKillingTerminals ? 'Killing terminals...' : `Kill all terminals (${nodes.length})`}
+                  {isKillingTerminals ? 'Killing terminals...' : `Kill all terminals (${terminalNodeCount})`}
                 </button>
               </div>
             )}
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
-                <p className="empty-state__title">NO ACTIVE TERMINALS</p>
+                <p className="empty-state__title">EMPTY CANVAS</p>
                 <p className="empty-state__body">Add or switch workspaces, then spawn shells at the canvas center. Use the mouse wheel on empty canvas space to toggle between normal and overview zoom.</p>
                 <div className="empty-state__actions">
                   <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
@@ -1104,7 +1493,9 @@ function App() {
 
       <footer className="statusbar">
         <span>SYSTEM_STATUS: {isBootstrapping ? 'BOOTSTRAPPING' : 'NOMINAL'}</span>
-        <span>TERMINALS: {nodes.length}</span>
+        <span>NODES: {nodes.length}</span>
+        <span>DIRTY_FILES: {dirtyEditorPathCount}</span>
+        <span>AUTOSAVE: {autoSave ? 'ON' : 'OFF'}</span>
         <span>WORKSPACES: {workspaces.length}</span>
         <span>ACTIVE_WORKSPACE: {workspacePath ?? 'HOME'}</span>
         <span>VIEWPORT: X={Math.round(viewport.x)} Y={Math.round(viewport.y)}</span>

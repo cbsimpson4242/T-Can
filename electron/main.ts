@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
 import { DEFAULT_LAYOUT, JsonStore } from './services/jsonStore'
 import { TerminalDaemonClient } from './services/terminalDaemonClient'
@@ -11,6 +11,7 @@ import {
   persistedLayoutSchema,
   sshWorkspaceRequestSchema,
   terminalClipboardRequestSchema,
+  workspaceFileCreateSchema,
   terminalCloseSchema,
   terminalContextMenuSchema,
   terminalSessionSchema,
@@ -18,9 +19,12 @@ import {
   terminalWriteSchema,
   workspaceFileRequestSchema,
   workspaceFileSaveSchema,
+  workspacePathRenameSchema,
   workspaceRequestSchema,
+  workspaceTextReplaceSchema,
+  workspaceTextSearchSchema,
 } from '../shared/ipc'
-import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileReadResult } from '../shared/types'
+import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTextSearchResult } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
@@ -270,6 +274,160 @@ function saveWorkspaceFile(workspaceId: string, relativePath: string, content: s
   return readWorkspaceFile(workspaceId, relativePath)
 }
 
+function getWorkspaceFileEntry(workspaceId: string, relativePath: string): WorkspaceFileEntry {
+  const filePath = resolveWorkspacePath(workspaceId, relativePath)
+  const stat = fs.statSync(filePath)
+  return {
+    name: path.basename(filePath),
+    relativePath: relativePath.replace(/\\/g, '/'),
+    type: stat.isDirectory() ? 'directory' : 'file',
+    ...(stat.isDirectory() ? { children: listWorkspaceDirectory(workspaceId, relativePath) } : {}),
+  }
+}
+
+function assertLocalWorkspace(workspaceId: string): void {
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  if (workspace.kind === 'ssh') {
+    throw new Error('Remote SSH file operations are not available yet')
+  }
+}
+
+function ensurePathDoesNotExist(targetPath: string): void {
+  if (fs.existsSync(targetPath)) {
+    throw new Error('A file or folder already exists at that path')
+  }
+}
+
+function createWorkspaceFile(workspaceId: string, relativePath: string, type: 'file' | 'directory'): WorkspaceFileMutationResult {
+  assertLocalWorkspace(workspaceId)
+  const filePath = resolveWorkspacePath(workspaceId, relativePath)
+  ensurePathDoesNotExist(filePath)
+  fs.mkdirSync(path.dirname(filePath), { recursive: true })
+  if (type === 'directory') {
+    fs.mkdirSync(filePath, { recursive: false })
+  } else {
+    fs.writeFileSync(filePath, '', 'utf8')
+  }
+  return { relativePath, entry: getWorkspaceFileEntry(workspaceId, relativePath) }
+}
+
+function renameWorkspacePath(workspaceId: string, relativePath: string, nextRelativePath: string): WorkspaceFileMutationResult {
+  assertLocalWorkspace(workspaceId)
+  const sourcePath = resolveWorkspacePath(workspaceId, relativePath)
+  const targetPath = resolveWorkspacePath(workspaceId, nextRelativePath)
+  ensurePathDoesNotExist(targetPath)
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true })
+  fs.renameSync(sourcePath, targetPath)
+  return { relativePath: nextRelativePath, entry: getWorkspaceFileEntry(workspaceId, nextRelativePath) }
+}
+
+function deleteWorkspacePath(workspaceId: string, relativePath: string): void {
+  assertLocalWorkspace(workspaceId)
+  const filePath = resolveWorkspacePath(workspaceId, relativePath)
+  fs.rmSync(filePath, { recursive: true, force: false })
+}
+
+function createDuplicatePath(filePath: string): string {
+  const directory = path.dirname(filePath)
+  const extension = path.extname(filePath)
+  const basename = path.basename(filePath, extension)
+  for (let index = 1; index < 1000; index += 1) {
+    const suffix = index === 1 ? ' copy' : ` copy ${index}`
+    const candidate = path.join(directory, `${basename}${suffix}${extension}`)
+    if (!fs.existsSync(candidate)) {
+      return candidate
+    }
+  }
+  throw new Error('Unable to choose a duplicate path')
+}
+
+function duplicateWorkspacePath(workspaceId: string, relativePath: string): WorkspaceFileMutationResult {
+  assertLocalWorkspace(workspaceId)
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  const workspaceRoot = path.resolve(workspace.path)
+  const sourcePath = resolveWorkspacePath(workspaceId, relativePath)
+  const targetPath = createDuplicatePath(sourcePath)
+  fs.cpSync(sourcePath, targetPath, { recursive: true, errorOnExist: true })
+  const duplicateRelativePath = toRelativeWorkspacePath(workspaceRoot, targetPath)
+  return { relativePath: duplicateRelativePath, entry: getWorkspaceFileEntry(workspaceId, duplicateRelativePath) }
+}
+
+function isLikelyTextFile(filePath: string): boolean {
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile() || stat.size > 1024 * 1024) {
+    return false
+  }
+  const sample = fs.readFileSync(filePath).subarray(0, 4096)
+  return !sample.includes(0)
+}
+
+function searchFileText(relativePath: string, content: string, query: string): WorkspaceTextSearchResult | null {
+  const matches: WorkspaceTextSearchResult['matches'] = []
+  const lines = content.split(/\r?\n/)
+  lines.forEach((line, index) => {
+    let fromIndex = 0
+    while (matches.length < 100) {
+      const column = line.indexOf(query, fromIndex)
+      if (column === -1) {
+        break
+      }
+      matches.push({
+        line: index + 1,
+        column: column + 1,
+        preview: line.trim().slice(0, 240),
+      })
+      fromIndex = column + Math.max(query.length, 1)
+    }
+  })
+  return matches.length ? { relativePath, matches } : null
+}
+
+function walkWorkspaceTextFiles(workspaceId: string, relativePath = '', results: string[] = []): string[] {
+  const directoryPath = resolveWorkspacePath(workspaceId, relativePath)
+  for (const entry of fs.readdirSync(directoryPath, { withFileTypes: true })) {
+    if (IGNORED_FILE_TREE_NAMES.has(entry.name)) {
+      continue
+    }
+    const childRelativePath = path.posix.join(relativePath.replace(/\\/g, '/'), entry.name)
+    const childPath = resolveWorkspacePath(workspaceId, childRelativePath)
+    if (entry.isDirectory()) {
+      walkWorkspaceTextFiles(workspaceId, childRelativePath, results)
+    } else if (isLikelyTextFile(childPath)) {
+      results.push(childRelativePath)
+    }
+  }
+  return results
+}
+
+function searchWorkspaceText(workspaceId: string, query: string): WorkspaceTextSearchResult[] {
+  assertLocalWorkspace(workspaceId)
+  if (!query) {
+    return []
+  }
+  const results: WorkspaceTextSearchResult[] = []
+  for (const relativePath of walkWorkspaceTextFiles(workspaceId)) {
+    const filePath = resolveWorkspacePath(workspaceId, relativePath)
+    const result = searchFileText(relativePath, fs.readFileSync(filePath, 'utf8'), query)
+    if (result) {
+      results.push(result)
+    }
+    if (results.length >= 200) {
+      break
+    }
+  }
+  return results
+}
+
+function replaceWorkspaceText(workspaceId: string, query: string, replacement: string): WorkspaceTextSearchResult[] {
+  const matches = searchWorkspaceText(workspaceId, query)
+  for (const result of matches) {
+    const filePath = resolveWorkspacePath(workspaceId, result.relativePath)
+    const content = fs.readFileSync(filePath, 'utf8')
+    fs.writeFileSync(filePath, content.split(query).join(replacement), 'utf8')
+  }
+  return matches
+}
+
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
   persistedState = {
     activeWorkspaceId: nextState.activeWorkspaceId,
@@ -418,6 +576,58 @@ function registerIpcHandlers(): void {
       throw new Error('Remote SSH file editing is not available yet')
     }
     return saveWorkspaceFile(request.workspaceId, request.relativePath, request.content)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.createWorkspaceFile, async (_event, candidate) => {
+    const request = workspaceFileCreateSchema.parse(candidate)
+    return createWorkspaceFile(request.workspaceId, request.relativePath, request.type)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.renameWorkspacePath, async (_event, candidate) => {
+    const request = workspacePathRenameSchema.parse(candidate)
+    return renameWorkspacePath(request.workspaceId, request.relativePath, request.nextRelativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.deleteWorkspacePath, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    if (!request.relativePath) {
+      throw new Error('Missing path to delete')
+    }
+    deleteWorkspacePath(request.workspaceId, request.relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.duplicateWorkspacePath, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    if (!request.relativePath) {
+      throw new Error('Missing path to duplicate')
+    }
+    return duplicateWorkspacePath(request.workspaceId, request.relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.copyWorkspacePath, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    if (!request.relativePath) {
+      throw new Error('Missing path to copy')
+    }
+    clipboard.writeText(resolveWorkspacePath(request.workspaceId, request.relativePath))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.revealWorkspacePath, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    if (!request.relativePath) {
+      throw new Error('Missing path to reveal')
+    }
+    shell.showItemInFolder(resolveWorkspacePath(request.workspaceId, request.relativePath))
+  })
+
+  ipcMain.handle(IPC_CHANNELS.searchWorkspaceText, async (_event, candidate) => {
+    const request = workspaceTextSearchSchema.parse(candidate)
+    return searchWorkspaceText(request.workspaceId, request.query)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.replaceWorkspaceText, async (_event, candidate) => {
+    const request = workspaceTextReplaceSchema.parse(candidate)
+    return replaceWorkspaceText(request.workspaceId, request.query, request.replacement)
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {

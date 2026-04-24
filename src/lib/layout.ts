@@ -44,6 +44,8 @@ export function createEditorNode(position: { x: number; y: number }, filePath: s
     type: 'editor',
     title,
     filePath,
+    activeFilePath: filePath,
+    tabs: [{ filePath, title }],
     x: position.x,
     y: position.y,
     width: DEFAULT_NODE_SIZE.width,

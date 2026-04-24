@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
-import Editor from '@monaco-editor/react'
-import type { EditorNode as EditorNodeModel, NodeResizeDirection } from '../../shared/types'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react'
+import Editor, { type OnMount } from '@monaco-editor/react'
+import type { editor } from 'monaco-editor'
+import type { EditorNode as EditorNodeModel, EditorTab, NodeResizeDirection } from '../../shared/types'
 
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
+const AUTOSAVE_DELAY_MS = 900
 
 interface ProjectedNodeRect {
   left: number
@@ -17,17 +19,22 @@ interface EditorNodeProps {
   workspaceId: string
   scale: number
   selected: boolean
+  autoSave: boolean
+  saveSignal: number
+  saveAllSignal: number
   onSelect(event: ReactPointerEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
   onResizeStart(event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection): void
   onClose(): void
+  onDirtyChange(nodeId: string, dirtyPaths: string[]): void
+  onTabsChange(nodeId: string, tabs: EditorTab[], activeFilePath: string): void
+  onSplit(filePath: string): void
 }
 
 function guessLanguage(filePath: string): string | undefined {
   const extension = filePath.split('.').pop()?.toLowerCase()
   switch (extension) {
     case 'ts':
-      return 'typescript'
     case 'tsx':
       return 'typescript'
     case 'js':
@@ -46,34 +53,81 @@ function guessLanguage(filePath: string): string | undefined {
   }
 }
 
+function getTitle(filePath: string): string {
+  return filePath.split(/[/\\]/).pop() || filePath
+}
+
+function normalizeTabs(node: EditorNodeModel): EditorTab[] {
+  const legacyTab = { filePath: node.filePath, title: node.title || getTitle(node.filePath), language: node.language }
+  const tabs = node.tabs && node.tabs.length > 0 ? node.tabs : [legacyTab]
+  return tabs.map((tab) => ({ ...tab, title: tab.title || getTitle(tab.filePath) }))
+}
+
 export function EditorNode(props: EditorNodeProps) {
-  const { node, canvasRect, workspaceId, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
-  const [content, setContent] = useState('')
-  const [savedContent, setSavedContent] = useState('')
-  const [isLoading, setIsLoading] = useState(true)
-  const [isSaving, setIsSaving] = useState(false)
+  const {
+    node,
+    canvasRect,
+    workspaceId,
+    scale,
+    selected,
+    autoSave,
+    saveSignal,
+    saveAllSignal,
+    onSelect,
+    onMoveStart,
+    onResizeStart,
+    onClose,
+    onDirtyChange,
+    onTabsChange,
+    onSplit,
+  } = props
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
+  const [contents, setContents] = useState<Record<string, string>>({})
+  const [savedContents, setSavedContents] = useState<Record<string, string>>({})
+  const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
+  const [savingPaths, setSavingPaths] = useState<Set<string>>(() => new Set())
   const [error, setError] = useState<string | null>(null)
-  const language = useMemo(() => node.language ?? guessLanguage(node.filePath), [node.filePath, node.language])
-  const isDirty = content !== savedContent
+  const [showMinimap, setShowMinimap] = useState(true)
+  const [wordWrap, setWordWrap] = useState(true)
+  const tabs = useMemo(() => normalizeTabs(node), [node])
+  const activeFilePath = node.activeFilePath && tabs.some((tab) => tab.filePath === node.activeFilePath)
+    ? node.activeFilePath
+    : tabs[0]?.filePath ?? node.filePath
+  const activeTab = tabs.find((tab) => tab.filePath === activeFilePath) ?? tabs[0]
+  const content = contents[activeFilePath] ?? ''
+  const dirtyPaths = useMemo(
+    () => tabs.map((tab) => tab.filePath).filter((filePath) => (contents[filePath] ?? '') !== (savedContents[filePath] ?? '')),
+    [contents, savedContents, tabs],
+  )
+  const isDirty = dirtyPaths.includes(activeFilePath)
+  const isLoading = loadingPaths.has(activeFilePath)
+  const isSaving = savingPaths.has(activeFilePath)
+  const language = activeTab?.language ?? guessLanguage(activeFilePath)
+
+  useEffect(() => {
+    onDirtyChange(node.id, dirtyPaths)
+  }, [dirtyPaths, node.id, onDirtyChange])
 
   useEffect(() => {
     let cancelled = false
-
-    queueMicrotask(() => {
-      if (cancelled) {
-        return
+    const missingPaths = tabs.map((tab) => tab.filePath).filter((filePath) => contents[filePath] === undefined && !loadingPaths.has(filePath))
+    if (missingPaths.length === 0) {
+      return () => {
+        cancelled = true
       }
+    }
 
-      setIsLoading(true)
-      setError(null)
+    setLoadingPaths((current) => new Set([...current, ...missingPaths]))
+    setError(null)
 
-      void window.tcan.readWorkspaceFile(workspaceId, node.filePath).then(
+    missingPaths.forEach((filePath) => {
+      void window.tcan.readWorkspaceFile(workspaceId, filePath).then(
         (result) => {
           if (cancelled) {
             return
           }
-          setContent(result.content)
-          setSavedContent(result.content)
+          setContents((current) => ({ ...current, [filePath]: result.content }))
+          setSavedContents((current) => ({ ...current, [filePath]: result.content }))
         },
         (readError) => {
           if (!cancelled) {
@@ -82,7 +136,11 @@ export function EditorNode(props: EditorNodeProps) {
         },
       ).finally(() => {
         if (!cancelled) {
-          setIsLoading(false)
+          setLoadingPaths((current) => {
+            const next = new Set(current)
+            next.delete(filePath)
+            return next
+          })
         }
       })
     })
@@ -90,20 +148,125 @@ export function EditorNode(props: EditorNodeProps) {
     return () => {
       cancelled = true
     }
-  }, [node.filePath, workspaceId])
+  }, [contents, loadingPaths, tabs, workspaceId])
 
-  async function saveFile() {
-    setIsSaving(true)
+  async function saveFile(filePath: string): Promise<void> {
+    if (loadingPaths.has(filePath)) {
+      return
+    }
+
+    const nextContent = contents[filePath]
+    if (nextContent === undefined || nextContent === savedContents[filePath]) {
+      return
+    }
+
+    setSavingPaths((current) => new Set(current).add(filePath))
     setError(null)
     try {
-      const result = await window.tcan.saveWorkspaceFile(workspaceId, node.filePath, content)
-      setSavedContent(result.content)
-      setContent(result.content)
+      const result = await window.tcan.saveWorkspaceFile(workspaceId, filePath, nextContent)
+      setSavedContents((current) => ({ ...current, [filePath]: result.content }))
+      setContents((current) => ({ ...current, [filePath]: result.content }))
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : String(saveError))
     } finally {
-      setIsSaving(false)
+      setSavingPaths((current) => {
+        const next = new Set(current)
+        next.delete(filePath)
+        return next
+      })
     }
+  }
+
+  async function saveAllFiles(): Promise<void> {
+    await Promise.all(dirtyPaths.map((filePath) => saveFile(filePath)))
+  }
+
+  useEffect(() => {
+    if (saveSignal > 0 && selected) {
+      void saveFile(activeFilePath)
+    }
+    // saveFile reads current editor state intentionally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveSignal])
+
+  useEffect(() => {
+    if (saveAllSignal > 0) {
+      void saveAllFiles()
+    }
+    // saveAllFiles reads current editor state intentionally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [saveAllSignal])
+
+  useEffect(() => {
+    if (!autoSave || dirtyPaths.length === 0) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      void saveAllFiles()
+    }, AUTOSAVE_DELAY_MS)
+
+    return () => window.clearTimeout(timeoutId)
+    // saveAllFiles reads current editor state intentionally.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSave, contents, dirtyPaths])
+
+  function updateTabs(nextTabs: EditorTab[], nextActiveFilePath = activeFilePath) {
+    onTabsChange(node.id, nextTabs, nextActiveFilePath)
+  }
+
+  function closeTab(filePath: string) {
+    if (dirtyPaths.includes(filePath) && !window.confirm(`Close ${filePath} without saving changes?`)) {
+      return
+    }
+
+    const nextTabs = tabs.filter((tab) => tab.filePath !== filePath)
+    if (nextTabs.length === 0) {
+      onDirtyChange(node.id, [])
+      onClose()
+      return
+    }
+
+    const nextActiveFilePath = filePath === activeFilePath ? nextTabs[Math.max(0, tabs.findIndex((tab) => tab.filePath === filePath) - 1)].filePath : activeFilePath
+    updateTabs(nextTabs, nextActiveFilePath)
+    setContents((current) => {
+      const next = { ...current }
+      delete next[filePath]
+      return next
+    })
+    setSavedContents((current) => {
+      const next = { ...current }
+      delete next[filePath]
+      return next
+    })
+  }
+
+  function closeNode() {
+    onClose()
+  }
+
+  function moveTab(filePath: string, direction: -1 | 1) {
+    const index = tabs.findIndex((tab) => tab.filePath === filePath)
+    const nextIndex = index + direction
+    if (index < 0 || nextIndex < 0 || nextIndex >= tabs.length) {
+      return
+    }
+    const nextTabs = [...tabs]
+    const [tab] = nextTabs.splice(index, 1)
+    nextTabs.splice(nextIndex, 0, tab)
+    updateTabs(nextTabs, activeFilePath)
+  }
+
+  function togglePinned(filePath: string) {
+    updateTabs(tabs.map((tab) => (tab.filePath === filePath ? { ...tab, pinned: !tab.pinned } : tab)), activeFilePath)
+  }
+
+  function runEditorAction(actionId: string) {
+    void editorRef.current?.getAction(actionId)?.run()
+  }
+
+  const handleEditorMount: OnMount = (editorInstance) => {
+    editorRef.current = editorInstance
   }
 
   const className = ['editor-node', selected ? 'editor-node--selected' : null].filter(Boolean).join(' ')
@@ -113,6 +276,7 @@ export function EditorNode(props: EditorNodeProps) {
     height: canvasRect.height,
     '--node-scale': `${scale}`,
   } as CSSProperties
+  const breadcrumbs = activeFilePath.split(/[\\/]/).filter(Boolean)
 
   return (
     <article className={className} onPointerDownCapture={onSelect} style={style}>
@@ -123,29 +287,57 @@ export function EditorNode(props: EditorNodeProps) {
           <span className="editor-node__light editor-node__light--green" />
         </div>
         <div className="editor-node__titleblock">
-          <strong>{node.title.toUpperCase()}{isDirty ? ' *' : ''}</strong>
-          <span>{node.filePath}</span>
+          <strong>{getTitle(activeFilePath).toUpperCase()}{isDirty ? ' *' : ''}</strong>
+          <span>{activeFilePath}</span>
         </div>
-        <button className="icon-button" disabled={!isDirty || isSaving || isLoading} onClick={() => void saveFile()} onPointerDown={(event) => event.stopPropagation()} type="button">
+        <button className="icon-button" disabled={!isDirty || isSaving || isLoading} onClick={() => void saveFile(activeFilePath)} onPointerDown={(event) => event.stopPropagation()} type="button">
           {isSaving ? '...' : 'SAVE'}
         </button>
-        <button aria-label={`Close ${node.title}`} className="icon-button" onClick={onClose} onPointerDown={(event) => event.stopPropagation()} type="button">
+        <button aria-label={`Close ${node.title}`} className="icon-button" onClick={closeNode} onPointerDown={(event) => event.stopPropagation()} type="button">
           x
         </button>
       </header>
+      <div className="editor-node__tabs" onPointerDown={(event) => event.stopPropagation()}>
+        {tabs.map((tab, index) => {
+          const tabDirty = dirtyPaths.includes(tab.filePath)
+          return (
+            <div className={tab.filePath === activeFilePath ? 'editor-node__tab editor-node__tab--active' : 'editor-node__tab'} key={tab.filePath} title={tab.filePath}>
+              <button className="editor-node__tab-main" onClick={() => updateTabs(tabs, tab.filePath)} type="button">
+                <span>{tab.pinned ? '● ' : ''}{tab.title}{tabDirty ? ' *' : ''}</span>
+              </button>
+              <button className="editor-node__tab-action" disabled={index === 0} onClick={() => moveTab(tab.filePath, -1)} title="Move tab left" type="button">‹</button>
+              <button className="editor-node__tab-action" disabled={index === tabs.length - 1} onClick={() => moveTab(tab.filePath, 1)} title="Move tab right" type="button">›</button>
+              <button className="editor-node__tab-action" onClick={() => togglePinned(tab.filePath)} title="Pin/unpin tab" type="button">⌖</button>
+              <button className="editor-node__tab-action" onClick={() => onSplit(tab.filePath)} title="Split tab to new editor" type="button">⇱</button>
+              <button className="editor-node__tab-action" disabled={tab.pinned} onClick={() => closeTab(tab.filePath)} title="Close tab" type="button">×</button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="editor-node__toolbar" onPointerDown={(event) => event.stopPropagation()}>
+        <span className="editor-node__breadcrumbs">{breadcrumbs.map((crumb, index) => <span key={`${crumb}-${index}`}>{crumb}</span>)}</span>
+        <button type="button" onClick={() => runEditorAction('actions.find')}>Find</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.startFindReplaceAction')}>Replace</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.gotoLine')}>Line</button>
+        <button type="button" onClick={() => runEditorAction('editor.action.formatDocument')}>Format</button>
+        <button type="button" onClick={() => setWordWrap((current) => !current)}>Wrap {wordWrap ? 'On' : 'Off'}</button>
+        <button type="button" onClick={() => setShowMinimap((current) => !current)}>Map {showMinimap ? 'On' : 'Off'}</button>
+      </div>
       <div className="editor-node__body">
         {error && <div className="editor-node__overlay">{error}</div>}
         {isLoading && <div className="editor-node__overlay">Loading file...</div>}
         <Editor
           height="100%"
           language={language}
-          onChange={(value) => setContent(value ?? '')}
+          onChange={(value) => setContents((current) => ({ ...current, [activeFilePath]: value ?? '' }))}
+          onMount={handleEditorMount}
           options={{
             automaticLayout: true,
             fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
             fontSize: Math.max(10, 13 * scale),
+            lineNumbers: 'on',
             minimap: {
-              enabled: true,
+              enabled: showMinimap,
               side: 'right',
               showSlider: 'always',
               renderCharacters: true,
@@ -153,6 +345,8 @@ export function EditorNode(props: EditorNodeProps) {
               scale: 1,
             },
             overviewRulerLanes: 3,
+            renderLineHighlight: 'all',
+            rulers: [100, 120],
             scrollbar: {
               horizontal: 'visible',
               vertical: 'visible',
@@ -161,9 +355,10 @@ export function EditorNode(props: EditorNodeProps) {
               verticalScrollbarSize: 12,
             },
             scrollBeyondLastLine: false,
-            wordWrap: 'on',
+            stickyScroll: { enabled: true },
+            wordWrap: wordWrap ? 'on' : 'off',
           }}
-          path={node.filePath}
+          path={activeFilePath}
           theme="vs-dark"
           value={content}
         />

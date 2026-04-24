@@ -28,6 +28,30 @@ const api: TCanApi = {
   saveWorkspaceFile(workspaceId, relativePath, content) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveWorkspaceFile, { workspaceId, relativePath, content })
   },
+  createWorkspaceFile(workspaceId, relativePath, type) {
+    return ipcRenderer.invoke(IPC_CHANNELS.createWorkspaceFile, { workspaceId, relativePath, type })
+  },
+  renameWorkspacePath(workspaceId, relativePath, nextRelativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.renameWorkspacePath, { workspaceId, relativePath, nextRelativePath })
+  },
+  deleteWorkspacePath(workspaceId, relativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.deleteWorkspacePath, { workspaceId, relativePath })
+  },
+  duplicateWorkspacePath(workspaceId, relativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.duplicateWorkspacePath, { workspaceId, relativePath })
+  },
+  copyWorkspacePath(workspaceId, relativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.copyWorkspacePath, { workspaceId, relativePath })
+  },
+  revealWorkspacePath(workspaceId, relativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.revealWorkspacePath, { workspaceId, relativePath })
+  },
+  searchWorkspaceText(workspaceId, query) {
+    return ipcRenderer.invoke(IPC_CHANNELS.searchWorkspaceText, { workspaceId, query })
+  },
+  replaceWorkspaceText(workspaceId, query, replacement) {
+    return ipcRenderer.invoke(IPC_CHANNELS.replaceWorkspaceText, { workspaceId, query, replacement })
+  },
   saveLayout(layout) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
   },

@@ -4,31 +4,33 @@ A saved checklist of features that would make T-CAN work more like a full IDE.
 
 ## Core editor features
 
-- [ ] Tabbed editor area
-  - Open multiple files in tabs.
-  - Close, pin, reorder, split, and restore tabs.
-  - Show dirty/unsaved indicators.
-- [ ] File creation/rename/delete
-  - New file/folder from explorer.
-  - Rename files/folders.
-  - Delete with confirmation.
-  - Duplicate/copy path/reveal in system explorer.
-- [ ] Save workflow
-  - `Ctrl+S` save active file.
-  - Save all.
-  - Auto-save option.
-  - Unsaved-change prompts when closing files/workspaces.
-- [ ] Find/replace
-  - Find in current file.
-  - Replace in current file.
-  - Search across workspace.
-  - Replace across workspace.
-- [ ] Editor polish
-  - Line numbers, minimap toggle, word wrap toggle.
-  - Format document.
-  - Go to line.
-  - Breadcrumbs.
-  - Split editor panes.
+- [x] Tabbed editor area
+  - [x] Open multiple files in tabs.
+  - [x] Close, pin, reorder, split, and restore tabs.
+  - [x] Show dirty/unsaved indicators.
+- [x] File creation/rename/delete
+  - [x] New file/folder from explorer.
+  - [x] Rename files/folders.
+  - [x] Delete with confirmation.
+  - [x] Duplicate/copy path/reveal in system explorer.
+- [x] Save workflow
+  - [x] `Ctrl+S` save active file.
+  - [x] Save all.
+  - [x] Auto-save option.
+  - [x] Unsaved-change prompts when closing files/workspaces.
+- [x] Find/replace
+  - [x] Find in current file.
+  - [x] Replace in current file.
+  - [x] Search across workspace.
+  - [x] Replace across workspace.
+- [x] Editor polish
+  - [x] Line numbers, minimap toggle, word wrap toggle.
+  - [x] Format document.
+  - [x] Go to line.
+  - [x] Breadcrumbs.
+  - [x] Split editor panes.
+
+Progress note (2026-04-24): Core editor features are implemented in the canvas editor node, explorer, preload/main IPC, and workspace search UI. Verified with TypeScript build, renderer/electron builds, and Vitest.
 
 ## Language intelligence
 
