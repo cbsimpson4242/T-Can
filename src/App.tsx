@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { PersistedAppState, PersistedLayout, PersistedWorkspace, TerminalNode as TerminalNodeModel, Viewport } from '../shared/types'
+import type { CanvasNode, PersistedAppState, PersistedLayout, PersistedWorkspace, Viewport, WorkspaceFileEntry } from '../shared/types'
+import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
 import {
   clampNodeSize,
@@ -12,10 +13,7 @@ import {
   zoomViewport,
 } from './lib/layout'
 
-interface ActiveNode extends TerminalNodeModel {
-  sessionId?: string
-  shell?: string
-}
+type ActiveNode = CanvasNode
 
 interface SelectionBox {
   x: number
@@ -81,23 +79,41 @@ function App() {
   const [closingWorkspaceId, setClosingWorkspaceId] = useState<string | null>(null)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
   const [isKillingTerminals, setIsKillingTerminals] = useState(false)
+  const [isLoadingFiles, setIsLoadingFiles] = useState(false)
+  const [fileEntries, setFileEntries] = useState<WorkspaceFileEntry[]>([])
   const [isCanvasPanning, setIsCanvasPanning] = useState(false)
 
   const selectedNodeIdSet = useMemo(() => new Set(selectedNodeIds), [selectedNodeIds])
 
   const layout = useMemo<PersistedLayout>(
     () => ({
-      nodes: nodes.map((node) => ({
-        id: node.id,
-        type: 'terminal' as const,
-        title: node.title,
-        x: node.x,
-        y: node.y,
-        width: node.width,
-        height: node.height,
-        sessionId: node.sessionId,
-        shell: node.shell,
-      })),
+      nodes: nodes.map((node) => {
+        if (node.type === 'editor') {
+          return {
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
+            filePath: node.filePath,
+            language: node.language,
+          }
+        }
+
+        return {
+          id: node.id,
+          type: node.type,
+          title: node.title,
+          x: node.x,
+          y: node.y,
+          width: node.width,
+          height: node.height,
+          sessionId: node.sessionId,
+          shell: node.shell,
+        }
+      }),
       viewport,
     }),
     [nodes, viewport],
@@ -118,7 +134,11 @@ function App() {
       setSelectedNodeIds([])
 
       const restoredNodes = await Promise.all(
-        workspace.layout.nodes.filter((node) => node.type !== 'editor').map(async (node) => {
+        workspace.layout.nodes.map(async (node) => {
+          if (node.type === 'editor') {
+            return node
+          }
+
           if (node.sessionId) {
             const existingSession = await api.getTerminalSession(node.sessionId)
             if (existingSession) {
@@ -199,6 +219,34 @@ function App() {
       cancelled = true
     }
   }, [])
+
+  async function refreshFileTree() {
+    if (!activeWorkspaceId) {
+      setFileEntries([])
+      return
+    }
+
+    setIsLoadingFiles(true)
+    try {
+      const entries = await getApi().listWorkspaceFiles(activeWorkspaceId)
+      setFileEntries(entries)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to load workspace files.\n\n${message}`)
+    } finally {
+      setIsLoadingFiles(false)
+    }
+  }
+
+  function handleOpenFileFromExplorer(relativePath: string) {
+    window.alert(`Editor nodes are next. Selected file:\n\n${relativePath}`)
+  }
+
+  useEffect(() => {
+    queueMicrotask(() => void refreshFileTree())
+    // refreshFileTree intentionally reads the latest active workspace state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     if (isBootstrapping || isRestoringWorkspaceRef.current || !activeWorkspaceId) {
@@ -675,6 +723,14 @@ function App() {
             !!
           </button>
         </aside>
+
+        <FileExplorer
+          entries={fileEntries}
+          loading={isLoadingFiles}
+          onOpenFile={handleOpenFileFromExplorer}
+          onRefresh={() => void refreshFileTree()}
+          workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
+        />
 
         <main className="workspace">
           <div
