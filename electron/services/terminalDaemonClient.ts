@@ -25,6 +25,10 @@ function delay(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
+function resolveNodeExecutable(): string {
+  return process.env.TCAN_NODE_PATH ?? process.env.npm_node_execpath ?? 'node'
+}
+
 function readState(statePath: string): DaemonState | null {
   try {
     if (!fs.existsSync(statePath)) {
@@ -130,7 +134,7 @@ export class TerminalDaemonClient {
     fs.mkdirSync(path.dirname(this.statePath), { recursive: true })
     fs.rmSync(this.statePath, { force: true })
 
-    const child = spawn(process.execPath, [this.daemonPath, '--state', this.statePath, '--token', token], {
+    const child = spawn(resolveNodeExecutable(), [this.daemonPath, '--state', this.statePath, '--token', token], {
       detached: true,
       stdio: 'ignore',
       windowsHide: true,
