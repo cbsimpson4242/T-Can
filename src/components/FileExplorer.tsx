@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type WheelEvent } from 'react'
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from 'react'
 import type { WorkspaceFileEntry } from '../../shared/types'
 
 interface FileExplorerProps {
@@ -58,7 +58,22 @@ function FileEntryView(props: {
 
 export function FileExplorer(props: FileExplorerProps) {
   const { entries, loading, workspaceName, onOpenFile, onRefresh } = props
+  const bodyRef = useRef<HTMLDivElement | null>(null)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
+
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!body) {
+      return
+    }
+
+    const stopNativeWheelPropagation = (event: globalThis.WheelEvent) => {
+      event.stopPropagation()
+    }
+
+    body.addEventListener('wheel', stopNativeWheelPropagation, { passive: false, capture: true })
+    return () => body.removeEventListener('wheel', stopNativeWheelPropagation, { capture: true })
+  }, [])
 
   function toggleDirectory(relativePath: string) {
     setExpandedPaths((current) => {
@@ -76,8 +91,19 @@ export function FileExplorer(props: FileExplorerProps) {
     event.stopPropagation()
   }
 
+  function stopExplorerPointerPropagation(event: PointerEvent<HTMLElement>) {
+    event.stopPropagation()
+  }
+
   return (
-    <aside className="file-explorer" aria-label="Workspace files">
+    <aside
+      className="file-explorer"
+      aria-label="Workspace files"
+      onPointerDown={stopExplorerPointerPropagation}
+      onPointerMove={stopExplorerPointerPropagation}
+      onPointerUp={stopExplorerPointerPropagation}
+      onWheel={stopExplorerWheelPropagation}
+    >
       <header className="file-explorer__header">
         <div>
           <span className="file-explorer__eyebrow">EXPLORER</span>
@@ -87,7 +113,7 @@ export function FileExplorer(props: FileExplorerProps) {
           ↻
         </button>
       </header>
-      <div className="file-explorer__body" onWheel={stopExplorerWheelPropagation}>
+      <div className="file-explorer__body" onWheel={stopExplorerWheelPropagation} ref={bodyRef}>
         {loading && <p className="file-explorer__empty">Loading files...</p>}
         {!loading && !workspaceName && <p className="file-explorer__empty">Open a workspace to browse files.</p>}
         {!loading && workspaceName && entries.length === 0 && <p className="file-explorer__empty">No files found.</p>}
