@@ -50,6 +50,14 @@ function getShellLabel(shell?: string): string | null {
   return label && label.length > 0 ? label : shell
 }
 
+function canReadClipboardForTerminal(): boolean {
+  return typeof window.tcan?.readClipboardForTerminal === 'function'
+}
+
+function canGetTerminalSession(): boolean {
+  return typeof window.tcan?.getTerminalSession === 'function'
+}
+
 export function TerminalNode(props: TerminalNodeProps) {
   const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -125,10 +133,20 @@ export function TerminalNode(props: TerminalNodeProps) {
         return
       }
 
-      let text = await window.tcan.readClipboardForTerminal({ sessionId, mode })
+      let text = ''
 
-      if (!text && allowClipboardFallback && mode !== 'clipboard') {
-        text = await window.tcan.readClipboardForTerminal({ sessionId, mode: 'clipboard' })
+      if (canReadClipboardForTerminal()) {
+        text = await window.tcan.readClipboardForTerminal({ sessionId, mode })
+
+        if (!text && allowClipboardFallback && mode !== 'clipboard') {
+          text = await window.tcan.readClipboardForTerminal({ sessionId, mode: 'clipboard' })
+        }
+      } else if (typeof window.tcan?.readClipboardText === 'function') {
+        text = await window.tcan.readClipboardText(mode)
+
+        if (!text && allowClipboardFallback && mode !== 'clipboard') {
+          text = await window.tcan.readClipboardText('clipboard')
+        }
       }
 
       pasteText(text)
@@ -254,12 +272,14 @@ export function TerminalNode(props: TerminalNodeProps) {
       maybeSendSshPassword(data)
     })
 
-    void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
-      if (!disposed && snapshot?.output) {
-        terminal.write(snapshot.output)
-        maybeSendSshPassword(snapshot.output)
-      }
-    })
+    if (canGetTerminalSession()) {
+      void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
+        if (!disposed && snapshot?.output) {
+          terminal.write(snapshot.output)
+          maybeSendSshPassword(snapshot.output)
+        }
+      })
+    }
 
     const pasteCleanup = subscribeToTerminalPaste(sessionId, (data) => {
       pasteText(data)

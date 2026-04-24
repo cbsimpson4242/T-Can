@@ -17,19 +17,30 @@ function ensureSubscriptions() {
   }
   subscribed = true
 
-  window.tcan.onTerminalOutput(({ sessionId, data }) => {
-    outputListeners.get(sessionId)?.forEach((listener) => listener(data))
-  })
+  const api = window.tcan
+  if (!api) {
+    return
+  }
 
-  window.tcan.onTerminalExit(({ sessionId, exitCode }) => {
-    latestExitCodes.set(sessionId, exitCode)
-    exitListeners.get(sessionId)?.forEach((listener) => listener(exitCode))
-    emitExitStoreChange()
-  })
+  if (typeof api.onTerminalOutput === 'function') {
+    api.onTerminalOutput(({ sessionId, data }) => {
+      outputListeners.get(sessionId)?.forEach((listener) => listener(data))
+    })
+  }
 
-  window.tcan.onTerminalPaste(({ sessionId, data }) => {
-    pasteListeners.get(sessionId)?.forEach((listener) => listener(data))
-  })
+  if (typeof api.onTerminalExit === 'function') {
+    api.onTerminalExit(({ sessionId, exitCode }) => {
+      latestExitCodes.set(sessionId, exitCode)
+      exitListeners.get(sessionId)?.forEach((listener) => listener(exitCode))
+      emitExitStoreChange()
+    })
+  }
+
+  if (typeof api.onTerminalPaste === 'function') {
+    api.onTerminalPaste(({ sessionId, data }) => {
+      pasteListeners.get(sessionId)?.forEach((listener) => listener(data))
+    })
+  }
 }
 
 export function subscribeToTerminalOutput(sessionId: string, listener: (data: string) => void): () => void {
