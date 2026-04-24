@@ -87,33 +87,17 @@ function App() {
 
   const layout = useMemo<PersistedLayout>(
     () => ({
-      nodes: nodes.map((node) => {
-        if (node.type === 'editor') {
-          return {
-            id: node.id,
-            type: node.type,
-            title: node.title,
-            x: node.x,
-            y: node.y,
-            width: node.width,
-            height: node.height,
-            filePath: node.filePath,
-            language: node.language,
-          }
-        }
-
-        return {
-          id: node.id,
-          type: node.type,
-          title: node.title,
-          x: node.x,
-          y: node.y,
-          width: node.width,
-          height: node.height,
-          sessionId: node.sessionId,
-          shell: node.shell,
-        }
-      }),
+      nodes: nodes.map((node) => ({
+        id: node.id,
+        type: 'terminal' as const,
+        title: node.title,
+        x: node.x,
+        y: node.y,
+        width: node.width,
+        height: node.height,
+        sessionId: node.sessionId,
+        shell: node.shell,
+      })),
       viewport,
     }),
     [nodes, viewport],
