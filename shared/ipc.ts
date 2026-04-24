@@ -22,9 +22,26 @@ export const persistedLayoutSchema = z.object({
   viewport: viewportSchema,
 })
 
+export const persistedWorkspaceSchema = z.object({
+  id: z.string(),
+  path: z.string(),
+  layout: persistedLayoutSchema,
+})
+
 export const persistedAppStateSchema = z.object({
+  activeWorkspaceId: z.string().nullable(),
+  workspaces: z.array(persistedWorkspaceSchema),
+  workspacePath: z.string().nullable().optional(),
+  layout: persistedLayoutSchema.optional(),
+})
+
+export const legacyPersistedAppStateSchema = z.object({
   workspacePath: z.string().nullable(),
   layout: persistedLayoutSchema,
+})
+
+export const switchWorkspaceSchema = z.object({
+  workspaceId: z.string(),
 })
 
 export const createTerminalRequestSchema = z.object({
@@ -65,6 +82,7 @@ export const IPC_CHANNELS = {
   getAppState: 'app:get-state',
   saveLayout: 'app:save-layout',
   openWorkspace: 'workspace:open-folder',
+  switchWorkspace: 'workspace:switch',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',

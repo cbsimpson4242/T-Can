@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { PersistedLayout, TerminalNode as TerminalNodeModel, Viewport } from '../shared/types'
+import type { PersistedAppState, PersistedLayout, PersistedWorkspace, TerminalNode as TerminalNodeModel, Viewport } from '../shared/types'
 import { TerminalNode } from './components/TerminalNode'
 import {
   clampNodeSize,
@@ -26,6 +26,14 @@ interface SelectionBox {
 
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const SELECTION_DRAG_THRESHOLD = 4
+
+function getWorkspaceName(workspacePath: string): string {
+  return workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? workspacePath
+}
+
+function getActiveWorkspace(state: Pick<PersistedAppState, 'activeWorkspaceId' | 'workspaces'>): PersistedWorkspace | null {
+  return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) ?? null
+}
 
 function getApi() {
   if (!window.tcan) {
@@ -56,7 +64,14 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const isCtrlZoomActiveRef = useRef(false)
-  const [workspacePath, setWorkspacePath] = useState<string | null>(null)
+  const isRestoringWorkspaceRef = useRef(false)
+  const [workspaces, setWorkspaces] = useState<PersistedWorkspace[]>([])
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
+  const activeWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
+    [activeWorkspaceId, workspaces],
+  )
+  const workspacePath = activeWorkspace?.path ?? null
   const [nodes, setNodes] = useState<ActiveNode[]>([])
   const [viewport, setViewport] = useState<Viewport>(DEFAULT_VIEWPORT)
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([])
@@ -85,6 +100,42 @@ function App() {
     }),
     [nodes, viewport],
   )
+
+  async function restoreWorkspaceLayout(workspace: PersistedWorkspace | null): Promise<void> {
+    isRestoringWorkspaceRef.current = true
+    try {
+      if (!workspace) {
+        setViewport(DEFAULT_VIEWPORT)
+        setNodes([])
+        setSelectedNodeIds([])
+        return
+      }
+
+      const api = getApi()
+      setViewport(workspace.layout.viewport)
+      setSelectedNodeIds([])
+
+      const restoredNodes = await Promise.all(
+        workspace.layout.nodes.map(async (node) => {
+          if (node.sessionId) {
+            const existingSession = await api.getTerminalSession(node.sessionId)
+            if (existingSession) {
+              return { ...node, shell: existingSession.info.shell }
+            }
+          }
+
+          const session = await api.createTerminal({ cwd: workspace.path })
+          return { ...node, sessionId: session.sessionId, shell: session.shell }
+        }),
+      )
+
+      setNodes(restoredNodes)
+    } finally {
+      window.setTimeout(() => {
+        isRestoringWorkspaceRef.current = false
+      })
+    }
+  }
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -127,28 +178,9 @@ function App() {
           return
         }
 
-        setWorkspacePath(state.workspacePath)
-        setViewport(state.layout.viewport)
-
-        const restoredNodes = await Promise.all(
-          state.layout.nodes.map(async (node) => {
-            if (node.sessionId) {
-              const existingSession = await api.getTerminalSession(node.sessionId)
-              if (existingSession) {
-                return { ...node, shell: existingSession.info.shell }
-              }
-            }
-
-            const session = await api.createTerminal({ cwd: state.workspacePath })
-            return { ...node, sessionId: session.sessionId, shell: session.shell }
-          }),
-        )
-
-        if (cancelled) {
-          return
-        }
-
-        setNodes(restoredNodes)
+        setWorkspaces(state.workspaces)
+        setActiveWorkspaceId(state.activeWorkspaceId)
+        await restoreWorkspaceLayout(getActiveWorkspace(state))
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)
         window.alert(`Unable to initialize T-CAN.\n\n${message}`)
@@ -167,22 +199,50 @@ function App() {
   }, [])
 
   useEffect(() => {
-    if (isBootstrapping) {
+    if (isBootstrapping || isRestoringWorkspaceRef.current || !activeWorkspaceId) {
       return
     }
+
+    setWorkspaces((current) =>
+      current.map((workspace) => (workspace.id === activeWorkspaceId ? { ...workspace, layout } : workspace)),
+    )
     void getApi().saveLayout(layout)
-  }, [isBootstrapping, layout])
+  }, [activeWorkspaceId, isBootstrapping, layout])
 
   async function handleOpenWorkspace() {
     setIsOpeningWorkspace(true)
     try {
-      const nextWorkspace = await getApi().openWorkspace()
-      setWorkspacePath(nextWorkspace)
+      if (activeWorkspaceId) {
+        await getApi().saveLayout(layout)
+      }
+      const nextState = await getApi().openWorkspace()
+      setWorkspaces(nextState.workspaces)
+      setActiveWorkspaceId(nextState.activeWorkspaceId)
+      await restoreWorkspaceLayout(getActiveWorkspace(nextState))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to open a workspace.\n\n${message}`)
     } finally {
       setIsOpeningWorkspace(false)
+    }
+  }
+
+  async function handleSwitchWorkspace(workspaceId: string) {
+    if (workspaceId === activeWorkspaceId) {
+      return
+    }
+
+    try {
+      if (activeWorkspaceId) {
+        await getApi().saveLayout(layout)
+      }
+      const nextState = await getApi().switchWorkspace(workspaceId)
+      setWorkspaces(nextState.workspaces)
+      setActiveWorkspaceId(nextState.activeWorkspaceId)
+      await restoreWorkspaceLayout(getActiveWorkspace(nextState))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to switch workspace.\n\n${message}`)
     }
   }
 
@@ -497,14 +557,26 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="topbar__brand">T_CAN//STITCH</div>
-        <nav className="topbar__nav" aria-label="Primary">
-          <span className="topbar__tab topbar__tab--active">SESSIONS</span>
-          <span className="topbar__tab">WORKSPACE</span>
-          <span className="topbar__tab">NETWORK</span>
+        <nav className="topbar__nav" aria-label="Workspaces">
+          {workspaces.length === 0 ? (
+            <span className="topbar__tab topbar__tab--active">NO WORKSPACE</span>
+          ) : (
+            workspaces.map((workspace) => (
+              <button
+                className={workspace.id === activeWorkspaceId ? 'topbar__tab topbar__tab--active' : 'topbar__tab'}
+                key={workspace.id}
+                onClick={() => void handleSwitchWorkspace(workspace.id)}
+                title={workspace.path}
+                type="button"
+              >
+                {getWorkspaceName(workspace.path)}
+              </button>
+            ))
+          )}
         </nav>
         <div className="topbar__actions">
           <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
-            {isOpeningWorkspace ? 'OPENING...' : 'OPEN WORKSPACE'}
+            {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
           <button
             className="command-button"
@@ -610,10 +682,10 @@ function App() {
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
                 <p className="empty-state__title">NO ACTIVE TERMINALS</p>
-                <p className="empty-state__body">Open a workspace or spawn a shell at the canvas center. Zoom only works while the keyboard Ctrl key is held.</p>
+                <p className="empty-state__body">Add or switch workspaces, then spawn shells at the canvas center. Zoom only works while the keyboard Ctrl key is held.</p>
                 <div className="empty-state__actions">
                   <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
-                    OPEN WORKSPACE
+                    ADD WORKSPACE
                   </button>
                   <button className="command-button" onClick={() => void handleCreateTerminal()} type="button">
                     SPAWN SHELL
@@ -628,7 +700,8 @@ function App() {
       <footer className="statusbar">
         <span>SYSTEM_STATUS: {isBootstrapping ? 'BOOTSTRAPPING' : 'NOMINAL'}</span>
         <span>TERMINALS: {nodes.length}</span>
-        <span>WORKSPACE_ROOT: {workspacePath ?? 'HOME'}</span>
+        <span>WORKSPACES: {workspaces.length}</span>
+        <span>ACTIVE_WORKSPACE: {workspacePath ?? 'HOME'}</span>
         <span>VIEWPORT: X={Math.round(viewport.x)} Y={Math.round(viewport.y)}</span>
       </footer>
     </div>

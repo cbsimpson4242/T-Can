@@ -130,18 +130,36 @@ button:disabled {
 .topbar__nav {
   display: flex;
   align-items: center;
-  gap: 1.75rem;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow-x: auto;
 }
 
 .topbar__tab {
+  flex: 0 0 auto;
+  border: 0;
+  border-bottom: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
   color: rgba(237, 242, 239, 0.48);
   font-size: 0.78rem;
-  padding: 0.35rem 0;
+  padding: 0.35rem 0.25rem;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.topbar__tab:hover:not(:disabled) {
+  background: transparent;
+  border-color: rgba(88, 242, 161, 0.45);
+  box-shadow: none;
+  transform: none;
 }
 
 .topbar__tab--active {
   color: var(--green);
-  border-bottom: 1px solid rgba(88, 242, 161, 0.75);
+  border-bottom-color: rgba(88, 242, 161, 0.75);
 }
 
 .topbar__actions {

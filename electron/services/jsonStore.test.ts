@@ -21,12 +21,11 @@ describe('JsonStore', () => {
     const store = new JsonStore(path.join(dir, 'app-state.json'))
     const state = store.load()
 
-    expect(state.workspacePath).toBeNull()
-    expect(state.layout.nodes).toEqual([])
-    expect(state.layout.viewport).toEqual({ x: 0, y: 0, scale: 1 })
+    expect(state.activeWorkspaceId).toBeNull()
+    expect(state.workspaces).toEqual([])
   })
 
-  it('persists and reloads layout state', () => {
+  it('persists and reloads multiple workspace layout state', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tcan-store-'))
     tempPaths.push(dir)
 
@@ -34,38 +33,83 @@ describe('JsonStore', () => {
     const store = new JsonStore(filePath)
 
     store.save({
-      workspacePath: '/tmp/workspace',
-      layout: {
-        viewport: { x: 10, y: 20, scale: 1.2 },
-        nodes: [
-          {
-            id: 'node-1',
-            title: 'Terminal',
-            x: 1,
-            y: 2,
-            width: 300,
-            height: 200,
+      activeWorkspaceId: '/tmp/workspace',
+      workspaces: [
+        {
+          id: '/tmp/workspace',
+          path: '/tmp/workspace',
+          layout: {
+            viewport: { x: 10, y: 20, scale: 1.2 },
+            nodes: [
+              {
+                id: 'node-1',
+                title: 'Terminal',
+                x: 1,
+                y: 2,
+                width: 300,
+                height: 200,
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
     })
 
     const reloaded = new JsonStore(filePath).load()
     expect(reloaded).toEqual({
-      workspacePath: '/tmp/workspace',
-      layout: {
-        viewport: { x: 10, y: 20, scale: 1.2 },
-        nodes: [
-          {
-            id: 'node-1',
-            title: 'Terminal',
-            x: 1,
-            y: 2,
-            width: 300,
-            height: 200,
+      activeWorkspaceId: '/tmp/workspace',
+      workspaces: [
+        {
+          id: '/tmp/workspace',
+          path: '/tmp/workspace',
+          layout: {
+            viewport: { x: 10, y: 20, scale: 1.2 },
+            nodes: [
+              {
+                id: 'node-1',
+                title: 'Terminal',
+                x: 1,
+                y: 2,
+                width: 300,
+                height: 200,
+              },
+            ],
           },
-        ],
-      },
+        },
+      ],
+    })
+  })
+
+  it('migrates legacy single-workspace state', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tcan-store-'))
+    tempPaths.push(dir)
+
+    const filePath = path.join(dir, 'app-state.json')
+    fs.writeFileSync(
+      filePath,
+      JSON.stringify({
+        workspacePath: '/tmp/workspace',
+        layout: {
+          viewport: { x: 10, y: 20, scale: 1.2 },
+          nodes: [],
+        },
+      }),
+      'utf8',
+    )
+
+    const reloaded = new JsonStore(filePath).load()
+    expect(reloaded).toEqual({
+      activeWorkspaceId: '/tmp/workspace',
+      workspaces: [
+        {
+          id: '/tmp/workspace',
+          path: '/tmp/workspace',
+          layout: {
+            viewport: { x: 10, y: 20, scale: 1.2 },
+            nodes: [],
+          },
+        },
+      ],
     })
   })
 })

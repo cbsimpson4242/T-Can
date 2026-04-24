@@ -20,9 +20,19 @@ export interface PersistedLayout {
   viewport: Viewport
 }
 
-export interface PersistedAppState {
-  workspacePath: string | null
+export interface PersistedWorkspace {
+  id: string
+  path: string
   layout: PersistedLayout
+}
+
+export interface PersistedAppState {
+  activeWorkspaceId: string | null
+  workspaces: PersistedWorkspace[]
+  /** @deprecated retained only for migrating older persisted state files. */
+  workspacePath?: string | null
+  /** @deprecated retained only for migrating older persisted state files. */
+  layout?: PersistedLayout
 }
 
 export interface TerminalSessionInfo {

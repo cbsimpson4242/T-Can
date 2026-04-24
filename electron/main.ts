@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
-import { JsonStore } from './services/jsonStore'
+import { DEFAULT_LAYOUT, JsonStore } from './services/jsonStore'
 import { TerminalDaemonClient } from './services/terminalDaemonClient'
 import {
   IPC_CHANNELS,
@@ -12,10 +12,11 @@ import {
   terminalCloseSchema,
   terminalContextMenuSchema,
   terminalSessionSchema,
+  switchWorkspaceSchema,
   terminalResizeSchema,
   terminalWriteSchema,
 } from '../shared/ipc'
-import type { PersistedAppState } from '../shared/types'
+import type { PersistedAppState, PersistedWorkspace } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
@@ -129,7 +130,7 @@ async function readClipboardForTerminal(sessionId: string, mode: 'clipboard' | '
   }
 
   const session = await terminalDaemon.getSession(sessionId)
-  const preferredRoot = session?.info.cwd ?? persistedState.workspacePath ?? app.getPath('pictures') ?? app.getPath('home')
+  const preferredRoot = session?.info.cwd ?? getActiveWorkspace()?.path ?? app.getPath('pictures') ?? app.getPath('home')
 
   try {
     const imagePath = saveClipboardImage(preferredRoot)
@@ -148,8 +149,19 @@ async function readClipboardForTerminal(sessionId: string, mode: 'clipboard' | '
   return ''
 }
 
+function getActiveWorkspace(): PersistedWorkspace | null {
+  return persistedState.workspaces.find((workspace) => workspace.id === persistedState.activeWorkspaceId) ?? null
+}
+
+function createWorkspaceId(workspacePath: string): string {
+  return workspacePath
+}
+
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
-  persistedState = nextState
+  persistedState = {
+    activeWorkspaceId: nextState.activeWorkspaceId,
+    workspaces: nextState.workspaces,
+  }
 
   try {
     store.save(persistedState)
@@ -165,9 +177,10 @@ function registerIpcHandlers(): void {
   ipcMain.handle(IPC_CHANNELS.getAppState, async () => persistedState)
 
   ipcMain.handle(IPC_CHANNELS.openWorkspace, async () => {
+    const activeWorkspace = getActiveWorkspace()
     const dialogOptions: OpenDialogOptions = {
       title: 'Open workspace',
-      defaultPath: persistedState.workspacePath ?? app.getPath('home'),
+      defaultPath: activeWorkspace?.path ?? app.getPath('home'),
       properties: ['openDirectory', 'createDirectory'],
       buttonLabel: 'Open workspace',
     }
@@ -177,22 +190,54 @@ function registerIpcHandlers(): void {
       : await dialog.showOpenDialog(dialogOptions)
 
     if (result.canceled || result.filePaths.length === 0) {
-      return persistedState.workspacePath
+      return persistedState
     }
 
-    const workspacePath = result.filePaths[0] ?? null
-    persistLayout({
-      ...persistedState,
-      workspacePath,
+    const workspacePath = result.filePaths[0]
+    const workspaceId = createWorkspaceId(workspacePath)
+    const existingWorkspace = persistedState.workspaces.find((workspace) => workspace.id === workspaceId)
+    const workspaces = existingWorkspace
+      ? persistedState.workspaces
+      : [
+          ...persistedState.workspaces,
+          {
+            id: workspaceId,
+            path: workspacePath,
+            layout: structuredClone(DEFAULT_LAYOUT),
+          },
+        ]
+
+    return persistLayout({
+      activeWorkspaceId: workspaceId,
+      workspaces,
     })
-    return workspacePath
+  })
+
+  ipcMain.handle(IPC_CHANNELS.switchWorkspace, async (_event, candidate) => {
+    const request = switchWorkspaceSchema.parse(candidate)
+    const workspace = persistedState.workspaces.find((entry) => entry.id === request.workspaceId)
+    if (!workspace) {
+      return persistedState
+    }
+
+    return persistLayout({
+      ...persistedState,
+      activeWorkspaceId: workspace.id,
+    })
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {
     const layout = persistedLayoutSchema.parse(candidate)
+    const activeWorkspaceId = persistedState.activeWorkspaceId
+    if (!activeWorkspaceId) {
+      return persistedState
+    }
+
     return persistLayout({
       ...persistedState,
-      layout,
+      workspaces: persistedState.workspaces.map((workspace) =>
+        workspace.id === activeWorkspaceId ? { ...workspace, layout } : workspace,
+      ),
     })
   })
 
@@ -200,7 +245,7 @@ function registerIpcHandlers(): void {
     const request = createTerminalRequestSchema.parse(candidate)
     const cwd = resolvePreferredCwd({
       requestedCwd: request.cwd,
-      workspacePath: persistedState.workspacePath,
+      workspacePath: getActiveWorkspace()?.path,
       homePath: app.getPath('home'),
     })
     const session = await terminalDaemon.createSession({ ...request, cwd })
