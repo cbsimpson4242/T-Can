@@ -14,9 +14,11 @@ import {
   terminalSessionSchema,
   terminalResizeSchema,
   terminalWriteSchema,
+  workspaceFileRequestSchema,
+  workspaceFileSaveSchema,
   workspaceRequestSchema,
 } from '../shared/ipc'
-import type { PersistedAppState, PersistedWorkspace } from '../shared/types'
+import type { PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileReadResult } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
@@ -157,6 +159,69 @@ function createWorkspaceId(workspacePath: string): string {
   return workspacePath
 }
 
+function getWorkspaceOrThrow(workspaceId: string): PersistedWorkspace {
+  const workspace = persistedState.workspaces.find((entry) => entry.id === workspaceId)
+  if (!workspace) {
+    throw new Error('Workspace is not open')
+  }
+  return workspace
+}
+
+function resolveWorkspacePath(workspaceId: string, relativePath = ''): string {
+  const workspace = getWorkspaceOrThrow(workspaceId)
+  const root = path.resolve(workspace.path)
+  const target = path.resolve(root, relativePath)
+  if (target !== root && !target.startsWith(`${root}${path.sep}`)) {
+    throw new Error('File path escapes the workspace')
+  }
+  return target
+}
+
+const IGNORED_FILE_TREE_NAMES = new Set(['.git', 'node_modules', 'dist', 'dist-electron'])
+
+function toRelativeWorkspacePath(workspaceRoot: string, absolutePath: string): string {
+  return path.relative(workspaceRoot, absolutePath).replace(/\\/g, '/')
+}
+
+function listWorkspaceDirectory(workspaceId: string, relativePath = '', depth = 0): WorkspaceFileEntry[] {
+  const workspaceRoot = path.resolve(getWorkspaceOrThrow(workspaceId).path)
+  const directoryPath = resolveWorkspacePath(workspaceId, relativePath)
+  const entries = fs.readdirSync(directoryPath, { withFileTypes: true })
+    .filter((entry) => !IGNORED_FILE_TREE_NAMES.has(entry.name))
+    .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name))
+
+  return entries.map((entry) => {
+    const absolutePath = path.join(directoryPath, entry.name)
+    const entryRelativePath = toRelativeWorkspacePath(workspaceRoot, absolutePath)
+    const type = entry.isDirectory() ? 'directory' : 'file'
+    return {
+      name: entry.name,
+      relativePath: entryRelativePath,
+      type,
+      ...(entry.isDirectory() && depth < 2 ? { children: listWorkspaceDirectory(workspaceId, entryRelativePath, depth + 1) } : {}),
+    }
+  })
+}
+
+function readWorkspaceFile(workspaceId: string, relativePath: string): WorkspaceFileReadResult {
+  const filePath = resolveWorkspacePath(workspaceId, relativePath)
+  const stat = fs.statSync(filePath)
+  if (!stat.isFile()) {
+    throw new Error('Workspace path is not a file')
+  }
+  return {
+    relativePath,
+    content: fs.readFileSync(filePath, 'utf8'),
+    mtimeMs: stat.mtimeMs,
+  }
+}
+
+function saveWorkspaceFile(workspaceId: string, relativePath: string, content: string): WorkspaceFileReadResult {
+  const filePath = resolveWorkspacePath(workspaceId, relativePath)
+  fs.writeFileSync(filePath, content, 'utf8')
+  return readWorkspaceFile(workspaceId, relativePath)
+}
+
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
   persistedState = {
     activeWorkspaceId: nextState.activeWorkspaceId,
@@ -252,6 +317,24 @@ function registerIpcHandlers(): void {
       activeWorkspaceId,
       workspaces,
     })
+  })
+
+  ipcMain.handle(IPC_CHANNELS.listWorkspaceFiles, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    return listWorkspaceDirectory(request.workspaceId, request.relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.readWorkspaceFile, async (_event, candidate) => {
+    const request = workspaceFileRequestSchema.parse(candidate)
+    if (!request.relativePath) {
+      throw new Error('Missing file path')
+    }
+    return readWorkspaceFile(request.workspaceId, request.relativePath)
+  })
+
+  ipcMain.handle(IPC_CHANNELS.saveWorkspaceFile, async (_event, candidate) => {
+    const request = workspaceFileSaveSchema.parse(candidate)
+    return saveWorkspaceFile(request.workspaceId, request.relativePath, request.content)
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {

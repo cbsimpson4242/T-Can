@@ -9,6 +9,8 @@ import type {
   TerminalPasteEvent,
   TerminalSessionInfo,
   TerminalSessionSnapshot,
+  WorkspaceFileEntry,
+  WorkspaceFileReadResult,
 } from './types'
 
 export interface TCanApi {
@@ -16,6 +18,9 @@ export interface TCanApi {
   openWorkspace(): Promise<PersistedAppState>
   switchWorkspace(workspaceId: string): Promise<PersistedAppState>
   closeWorkspace(workspaceId: string): Promise<PersistedAppState>
+  listWorkspaceFiles(workspaceId: string, relativePath?: string): Promise<WorkspaceFileEntry[]>
+  readWorkspaceFile(workspaceId: string, relativePath: string): Promise<WorkspaceFileReadResult>
+  saveWorkspaceFile(workspaceId: string, relativePath: string, content: string): Promise<WorkspaceFileReadResult>
   saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>

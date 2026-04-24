@@ -16,6 +16,15 @@ const api: TCanApi = {
   closeWorkspace(workspaceId) {
     return ipcRenderer.invoke(IPC_CHANNELS.closeWorkspace, { workspaceId })
   },
+  listWorkspaceFiles(workspaceId, relativePath = '') {
+    return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceFiles, { workspaceId, relativePath })
+  },
+  readWorkspaceFile(workspaceId, relativePath) {
+    return ipcRenderer.invoke(IPC_CHANNELS.readWorkspaceFile, { workspaceId, relativePath })
+  },
+  saveWorkspaceFile(workspaceId, relativePath, content) {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveWorkspaceFile, { workspaceId, relativePath, content })
+  },
   saveLayout(layout) {
     return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
   },

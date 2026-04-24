@@ -68,6 +68,19 @@ export interface CreateTerminalRequest {
   rows?: number
 }
 
+export interface WorkspaceFileEntry {
+  name: string
+  relativePath: string
+  type: 'file' | 'directory'
+  children?: WorkspaceFileEntry[]
+}
+
+export interface WorkspaceFileReadResult {
+  relativePath: string
+  content: string
+  mtimeMs: number
+}
+
 export type ClipboardTextMode = 'clipboard' | 'selection'
 
 export interface TerminalClipboardRequest {

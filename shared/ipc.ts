@@ -57,6 +57,17 @@ export const workspaceRequestSchema = z.object({
   workspaceId: z.string(),
 })
 
+export const workspaceFileRequestSchema = z.object({
+  workspaceId: z.string(),
+  relativePath: z.string().optional().default(''),
+})
+
+export const workspaceFileSaveSchema = z.object({
+  workspaceId: z.string(),
+  relativePath: z.string(),
+  content: z.string(),
+})
+
 export const createTerminalRequestSchema = z.object({
   cwd: z.string().nullable().optional(),
   cols: z.number().int().min(20).max(400).optional(),
@@ -97,6 +108,9 @@ export const IPC_CHANNELS = {
   openWorkspace: 'workspace:open-folder',
   switchWorkspace: 'workspace:switch',
   closeWorkspace: 'workspace:close',
+  listWorkspaceFiles: 'workspace:list-files',
+  readWorkspaceFile: 'workspace:read-file',
+  saveWorkspaceFile: 'workspace:save-file',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
   listTerminals: 'terminal:list',
