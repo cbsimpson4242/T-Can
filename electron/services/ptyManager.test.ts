@@ -277,6 +277,50 @@ describe('PtyManager', () => {
     })
   })
 
+  it('recognizes common AI agent launch commands for duplication', () => {
+    const agentCommands = [
+      'pi',
+      'pi agent',
+      'opencode',
+      'opencode-ai',
+      'codex',
+      'claude',
+      'claude code',
+      'claude-code',
+      'gemini',
+      'gemini cli',
+      'gemini-cli',
+      'aider',
+      'cursor-agent',
+      'cursor agent',
+      'npx -y @anthropic-ai/claude-code',
+      'npx @openai/codex',
+      'pnpm dlx @google/gemini-cli',
+      'yarn dlx opencode-ai',
+      'bunx aider',
+      'uvx cursor-agent',
+      'npm exec -- codex',
+    ]
+
+    for (const commandLine of agentCommands) {
+      const handle = new FakePtyHandle()
+      const manager = new PtyManager({
+        backend: { spawn: vi.fn(() => handle) },
+        defaultShell: '/bin/bash',
+        env: { TEST_ENV: '1' },
+        platform: 'linux',
+      })
+      const session = manager.createSession({ cwd: '/tmp' })
+
+      manager.write(session.sessionId, `${commandLine}\r`)
+
+      expect(manager.getSession(session.sessionId)?.info).toMatchObject({
+        agentCommandLine: commandLine,
+        isAgentSession: true,
+      })
+    }
+  })
+
   it('falls back to cmd on Windows if the preferred shell fails to spawn', () => {
     const handle = new FakePtyHandle()
     const backend: PtyBackend = {

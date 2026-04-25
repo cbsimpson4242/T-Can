@@ -18,8 +18,8 @@ import { subscribeToTerminalOutput, subscribeToTerminalPaste, useTerminalExit } 
 const BASE_TERMINAL_FONT_SIZE = 13
 const PTY_RESIZE_DEBOUNCE_MS = 150
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
-const AI_AGENT_COMMAND_PATTERN = /^(?:(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx)\s+)?(?:pi(?:\s+agent)?|opencode|claude(?:\s+code)?|codex|gemini(?:\s+cli)?|aider|cursor(?:-agent)?)(?:\s|$)/i
-const AI_AGENT_OUTPUT_PATTERN = /\b(?:pi\s+(?:coding\s+)?agent|opencode|claude\s+code|codex|gemini\s+cli|aider|cursor\s+agent)\b/i
+const AI_AGENT_COMMAND_PATTERN = /^(?:(?:npx|bunx|uvx)(?:\s+--?[^\s]+)*\s+|(?:pnpm\s+dlx|yarn\s+dlx|npm\s+exec)(?:\s+--?[^\s]+)*\s+)?(?:pi(?:[-\s]+agent)?|opencode(?:-ai)?|claude(?:[-\s]+code)?|@anthropic-ai\/claude-code|codex|@openai\/codex|gemini(?:[-\s]+cli)?|@google\/gemini-cli|aider|cursor(?:[-\s]+agent)?)(?:\s|$)/i
+const AI_AGENT_OUTPUT_PATTERN = /\b(?:pi\s+(?:coding\s+)?agent|opencode(?:\s+ai)?|claude(?:\s+code)?|codex|gemini(?:\s+cli)?|aider|cursor\s+agent)\b/i
 const AI_AGENT_PROMPT_SCROLL_LINE_THRESHOLD = 2
 const AI_AGENT_PROMPT_SCROLL_CHAR_THRESHOLD = 120
 const ESC = String.fromCharCode(27)
@@ -483,7 +483,17 @@ export function TerminalNode(props: TerminalNodeProps) {
 
     if (canGetTerminalSession()) {
       void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
-        if (!disposed && snapshot?.output) {
+        if (disposed || !snapshot) {
+          return
+        }
+
+        if (snapshot.info.isAgentSession || snapshot.info.agentCommandLine) {
+          markAiAgentSession()
+        }
+        if (snapshot.info.lastAgentMessage) {
+          setLastAgentMessage(snapshot.info.lastAgentMessage)
+        }
+        if (snapshot.output) {
           terminal.write(snapshot.output)
           maybeHandleSshPasswordPrompt(snapshot.output)
           if (containsKnownAiAgentOutput(snapshot.output)) {

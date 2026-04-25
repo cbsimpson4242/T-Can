@@ -77,6 +77,8 @@ export interface TerminalSessionInfo {
   command?: string
   args?: string[]
   agentCommandLine?: string
+  isAgentSession?: boolean
+  lastAgentMessage?: string
   pid?: number
 }
 

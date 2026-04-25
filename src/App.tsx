@@ -833,8 +833,46 @@ function App() {
     }
   }
 
+  function delay(ms: number): Promise<void> {
+    return new Promise((resolve) => window.setTimeout(resolve, ms))
+  }
+
+  function stripTerminalControlSequences(input: string): string {
+    return input
+      .replace(/\x1B\[[0-?]*[ -/]*[@-~]/g, '')
+      .replace(/\x1B\][^\x07]*(?:\x07|\x1B\\)/g, '')
+      .replace(/[\b\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g, '')
+  }
+
+  function isWaitingForPassword(output: string): boolean {
+    return /(?:password|passphrase)(?:\s+for\s+[^:\r\n]+|[^:\r\n]*)?:\s*$/i.test(stripTerminalControlSequences(output))
+  }
+
+  async function launchAgentCommandWhenReady(sessionId: string, agentCommandLine: string, sshTarget?: string): Promise<void> {
+    await delay(sshTarget ? 3500 : 350)
+
+    for (let attempt = 0; attempt < 30; attempt += 1) {
+      const snapshot = await getApi().getTerminalSession(sessionId)
+      if (!snapshot) {
+        await delay(250)
+        continue
+      }
+
+      if (!sshTarget || !isWaitingForPassword(snapshot.output)) {
+        await getApi().writeTerminal(sessionId, `${agentCommandLine}\r`)
+        return
+      }
+
+      await delay(750)
+    }
+
+    await getApi().writeTerminal(sessionId, `${agentCommandLine}\r`)
+  }
+
   async function createDuplicateTerminalNodes(sourceNodes: TerminalNodeModel[], offset: { x: number; y: number }) {
-    return Promise.all(sourceNodes.map(async (node) => {
+    const duplicatedNodes: TerminalNodeModel[] = []
+
+    for (const node of sourceNodes) {
       const sourceSession = node.sessionId ? await getApi().getTerminalSession(node.sessionId) : null
       const agentCommandLine = sourceSession?.info.agentCommandLine
       const sshTarget = node.sshTarget ?? (activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined)
@@ -843,12 +881,10 @@ function App() {
         : await getApi().createTerminal({ cwd: node.cwd ?? workspacePath })
 
       if (agentCommandLine) {
-        window.setTimeout(() => {
-          void getApi().writeTerminal(session.sessionId, `${agentCommandLine}\r`)
-        }, sshTarget ? 1500 : 150)
+        void launchAgentCommandWhenReady(session.sessionId, agentCommandLine, sshTarget)
       }
 
-      return {
+      duplicatedNodes.push({
         ...createTerminalNode({ x: node.x + offset.x, y: node.y + offset.y }),
         title: `${node.title} copy`,
         width: node.width,
@@ -858,8 +894,10 @@ function App() {
         sshTarget,
         cwd: session.cwd,
         taskName: node.taskName,
-      }
-    }))
+      })
+    }
+
+    return duplicatedNodes
   }
 
   async function handleDuplicateSelectedNodes() {
@@ -962,7 +1000,7 @@ function App() {
 
     setNodes((current) => {
       const node = current.find((entry) => entry.id === nodeId)
-      if (node?.type === 'terminal' && node.sessionId) {
+      if (node && (node.type === 'terminal' || !node.type) && node.sessionId) {
         void getApi().closeTerminal(node.sessionId)
       }
       return current.filter((entry) => entry.id !== nodeId)
@@ -973,6 +1011,28 @@ function App() {
       return next
     })
     setSelectedNodeIds((current) => current.filter((entry) => entry !== nodeId))
+  }
+
+  async function removeTerminalSelection(clickedNodeId: string) {
+    const terminalIdsToClose = nodes
+      .filter((node): node is TerminalNodeModel => (node.type === 'terminal' || !node.type) && (selectedNodeIdSet.has(clickedNodeId) ? selectedNodeIdSet.has(node.id) : node.id === clickedNodeId))
+      .map((node) => node.id)
+
+    if (terminalIdsToClose.length <= 1) {
+      await removeNode(clickedNodeId)
+      return
+    }
+
+    const terminalIdSet = new Set(terminalIdsToClose)
+    setNodes((current) => {
+      for (const node of current) {
+        if ((node.type === 'terminal' || !node.type) && terminalIdSet.has(node.id) && node.sessionId) {
+          void getApi().closeTerminal(node.sessionId)
+        }
+      }
+      return current.filter((node) => !terminalIdSet.has(node.id))
+    })
+    setSelectedNodeIds((current) => current.filter((nodeId) => !terminalIdSet.has(nodeId)))
   }
 
   async function handleKillAllTerminals() {
@@ -1845,7 +1905,7 @@ function App() {
                       height: canvasRect.bottom - canvasRect.top,
                     }}
                     node={node}
-                    onClose={() => void removeNode(node.id)}
+                    onClose={() => void removeTerminalSelection(node.id)}
                     onContextMenu={selectedNodeIdSet.has(node.id) && selectedDuplicableNodeCount > 1 ? handleSelectedTerminalContextMenu : undefined}
                     onMoveStart={(event) => beginNodeMove(node.id, event)}
                     onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}

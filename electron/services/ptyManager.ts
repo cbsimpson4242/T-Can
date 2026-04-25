@@ -45,7 +45,22 @@ interface SessionRecord {
 }
 
 const MAX_SESSION_OUTPUT_CHARS = 200_000
-const RECOGNIZED_AGENT_COMMANDS = new Set(['pi', 'opencode', 'claude', 'gemini', 'codex'])
+const RECOGNIZED_AGENT_COMMANDS = new Set([
+  'pi',
+  'pi-agent',
+  'opencode',
+  'opencode-ai',
+  'claude',
+  'claude-code',
+  'gemini',
+  'gemini-cli',
+  'codex',
+  'aider',
+  'cursor',
+  'cursor-agent',
+])
+const AGENT_COMMAND_RUNNERS = new Set(['npx', 'bunx', 'uvx'])
+const AGENT_COMMAND_RUNNER_PAIRS = new Set(['pnpm dlx', 'yarn dlx', 'npm exec'])
 
 interface PtyManagerOptions {
   backend: PtyBackend
@@ -108,9 +123,48 @@ function splitCommandLine(commandLine: string): string[] {
   return tokens
 }
 
+function findFirstNonOptionToken(tokens: string[], startIndex: number): string | null {
+  for (let index = startIndex; index < tokens.length; index += 1) {
+    const token = tokens[index]
+    if (!token || token === '--') {
+      continue
+    }
+    if (token.startsWith('-')) {
+      continue
+    }
+    return token
+  }
+  return null
+}
+
+function getRecognizedAgentCommandName(commandLine: string): string | null {
+  const tokens = splitCommandLine(commandLine)
+  const firstCommand = tokens[0] ? getCommandName(tokens[0]) : null
+  if (!firstCommand) {
+    return null
+  }
+
+  if (RECOGNIZED_AGENT_COMMANDS.has(firstCommand)) {
+    return firstCommand
+  }
+
+  if (AGENT_COMMAND_RUNNERS.has(firstCommand)) {
+    const candidateToken = findFirstNonOptionToken(tokens, 1)
+    const candidate = candidateToken ? getCommandName(candidateToken) : null
+    return candidate && RECOGNIZED_AGENT_COMMANDS.has(candidate) ? candidate : null
+  }
+
+  if (tokens[1] && AGENT_COMMAND_RUNNER_PAIRS.has(`${firstCommand} ${tokens[1].toLowerCase()}`)) {
+    const candidateToken = findFirstNonOptionToken(tokens, 2)
+    const candidate = candidateToken ? getCommandName(candidateToken) : null
+    return candidate && RECOGNIZED_AGENT_COMMANDS.has(candidate) ? candidate : null
+  }
+
+  return null
+}
+
 function isRecognizedAgentCommandLine(commandLine: string): boolean {
-  const [command] = splitCommandLine(commandLine)
-  return command ? RECOGNIZED_AGENT_COMMANDS.has(getCommandName(command)) : false
+  return getRecognizedAgentCommandName(commandLine) !== null
 }
 
 function quoteCommandArg(arg: string): string {
@@ -126,12 +180,26 @@ function buildCommandLine(command?: string, args: string[] = []): string | undef
   return isRecognizedAgentCommandLine(commandLine) ? commandLine : undefined
 }
 
+function normalizeSubmittedInput(input: string): string {
+  return input
+    .replace(/\u001b\[200~/g, '')
+    .replace(/\u001b\[201~/g, '')
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim()
+}
+
 function updateAgentCommandFromInput(session: SessionRecord, data: string): void {
   for (const character of data) {
     if (character === '\r' || character === '\n') {
-      const commandLine = session.inputBuffer.trim()
-      if (isRecognizedAgentCommandLine(commandLine)) {
-        session.info.agentCommandLine = commandLine
+      const submittedInput = normalizeSubmittedInput(session.inputBuffer)
+      if (submittedInput) {
+        if (isRecognizedAgentCommandLine(submittedInput)) {
+          session.info.agentCommandLine = submittedInput
+          session.info.isAgentSession = true
+        } else if (session.info.isAgentSession) {
+          session.info.lastAgentMessage = submittedInput
+        }
       }
       session.inputBuffer = ''
       continue
@@ -427,13 +495,15 @@ export class PtyManager {
       }
     }
 
+    const agentCommandLine = buildCommandLine(request.command, request.args)
     const info: TerminalSessionInfo = {
       sessionId,
       cwd,
       shell,
       command: request.command,
       args: request.args,
-      agentCommandLine: buildCommandLine(request.command, request.args),
+      agentCommandLine,
+      isAgentSession: Boolean(agentCommandLine),
       pid: handle.pid,
     }
 
