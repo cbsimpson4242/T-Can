@@ -1,4 +1,4 @@
-import type { CanvasNode, EditorNode, TerminalNode, Viewport } from '../../shared/types'
+import type { CanvasNode, EditorNode, SourceControlNode, TerminalNode, Viewport } from '../../shared/types'
 
 export interface CanvasRect {
   left: number
@@ -30,6 +30,22 @@ export function createTerminalNode(position: { x: number; y: number }): Terminal
     y: position.y,
     width: DEFAULT_NODE_SIZE.width,
     height: DEFAULT_NODE_SIZE.height,
+  }
+}
+
+export function createSourceControlNode(position: { x: number; y: number }): SourceControlNode {
+  const id = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+    ? crypto.randomUUID()
+    : `node-${Math.random().toString(36).slice(2, 11)}`
+
+  return {
+    id,
+    type: 'source-control',
+    title: 'Source Control',
+    x: position.x,
+    y: position.y,
+    width: 920,
+    height: 620,
   }
 }
 

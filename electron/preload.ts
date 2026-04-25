@@ -1,7 +1,7 @@
 import { clipboard, contextBridge, ipcRenderer } from 'electron'
 import type { TCanApi } from '../shared/api'
 import { IPC_CHANNELS } from '../shared/ipc'
-import type { ClipboardTextMode, TerminalExitEvent, TerminalOutputEvent, TerminalPasteEvent } from '../shared/types'
+import type { ClipboardTextMode, TerminalExitEvent, TerminalOutputEvent, TerminalPasteEvent, WorkspaceChangedEvent } from '../shared/types'
 
 const api: TCanApi = {
   getAppState() {
@@ -88,6 +88,9 @@ const api: TCanApi = {
   gitDiscard(workspaceId, filePath) {
     return ipcRenderer.invoke(IPC_CHANNELS.gitDiscard, { workspaceId, filePath })
   },
+  gitDiscardAll(workspaceId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.gitDiscardAll, { workspaceId })
+  },
   gitCommit(workspaceId, message) {
     return ipcRenderer.invoke(IPC_CHANNELS.gitCommit, { workspaceId, message })
   },
@@ -128,6 +131,10 @@ const api: TCanApi = {
       return Promise.reject(error)
     }
   },
+  writeClipboardText(text) {
+    clipboard.writeText(text)
+    return Promise.resolve()
+  },
   readClipboardForTerminal(request) {
     return ipcRenderer.invoke(IPC_CHANNELS.readClipboardForTerminal, request)
   },
@@ -148,6 +155,11 @@ const api: TCanApi = {
     const wrapped = (_event: Electron.IpcRendererEvent, payload: TerminalPasteEvent) => listener(payload)
     ipcRenderer.on(IPC_CHANNELS.terminalPaste, wrapped)
     return () => ipcRenderer.removeListener(IPC_CHANNELS.terminalPaste, wrapped)
+  },
+  onWorkspaceChanged(listener) {
+    const wrapped = (_event: Electron.IpcRendererEvent, payload: WorkspaceChangedEvent) => listener(payload)
+    ipcRenderer.on(IPC_CHANNELS.workspaceChanged, wrapped)
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.workspaceChanged, wrapped)
   },
 }
 

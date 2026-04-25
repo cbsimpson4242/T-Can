@@ -13,6 +13,7 @@ import type {
   TerminalOutputEvent,
   TerminalPasteEvent,
   TerminalSessionInfo,
+  WorkspaceChangedEvent,
   TerminalSessionSnapshot,
   WorkspaceFileEntry,
   WorkspaceFileMutationResult,
@@ -49,6 +50,7 @@ export interface TCanApi {
   gitStage(workspaceId: string, filePath: string): Promise<void>
   gitUnstage(workspaceId: string, filePath: string): Promise<void>
   gitDiscard(workspaceId: string, filePath: string): Promise<void>
+  gitDiscardAll(workspaceId: string): Promise<void>
   gitCommit(workspaceId: string, message: string): Promise<void>
   gitPush(workspaceId: string): Promise<void>
   gitPull(workspaceId: string): Promise<void>
@@ -60,9 +62,11 @@ export interface TCanApi {
   getGitFileHistory(workspaceId: string, filePath: string): Promise<GitCommitSummary[]>
   getGitBlame(workspaceId: string, filePath: string): Promise<GitBlameLine[]>
   readClipboardText(mode?: ClipboardTextMode): Promise<string>
+  writeClipboardText(text: string): Promise<void>
   readClipboardForTerminal(request: TerminalClipboardRequest): Promise<string>
   showTerminalContextMenu(sessionId: string): Promise<void>
   onTerminalOutput(listener: (event: TerminalOutputEvent) => void): () => void
   onTerminalExit(listener: (event: TerminalExitEvent) => void): () => void
   onTerminalPaste(listener: (event: TerminalPasteEvent) => void): () => void
+  onWorkspaceChanged(listener: (event: WorkspaceChangedEvent) => void): () => void
 }

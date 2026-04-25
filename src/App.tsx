@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
+import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
 import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
@@ -8,6 +8,7 @@ import {
   clampNodeSize,
   createCanvasRect,
   createEditorNode,
+  createSourceControlNode,
   createTerminalNode,
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
@@ -33,6 +34,7 @@ interface GitPanelState {
   status: GitStatusEntry[]
   branches: GitBranchSummary | null
   selectedPath: string | null
+  selectedDiffStaged: boolean
   diff: GitFileDiff | null
   diffMode: 'inline' | 'side-by-side'
   commitMessage: string
@@ -43,6 +45,7 @@ interface GitPanelState {
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const PROBLEM_PATTERN = /(?<path>(?:[A-Za-z]:)?[^\s:()]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?::(?<column>\d+))?[):]?\s*(?<message>.*)$/
 const SELECTION_DRAG_THRESHOLD = 4
+const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
 function getWorkspaceName(workspacePath: string): string {
   if (workspacePath.startsWith('ssh://')) {
@@ -54,6 +57,18 @@ function getWorkspaceName(workspacePath: string): string {
 
 function getFileTitle(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || filePath
+}
+
+function getFileDirectory(filePath: string): string {
+  const parts = filePath.split(/[\\/]/).filter(Boolean)
+  parts.pop()
+  return parts.join('/')
+}
+
+function getFileExtensionBadge(filePath: string): string {
+  const title = getFileTitle(filePath)
+  const extension = title.includes('.') ? title.split('.').pop() : title.slice(0, 2)
+  return (extension || 'file').slice(0, 3).toUpperCase()
 }
 
 function createEditorTab(filePath: string): EditorTab {
@@ -101,6 +116,11 @@ function getApi() {
   return window.tcan
 }
 
+function isSshSessionForTarget(session: TerminalSessionSnapshot, target: string): boolean {
+  const command = session.info.command?.split(/[\\/]/).pop()?.toLowerCase()
+  return (command === 'ssh' || command === 'ssh.exe') && session.info.args?.[0] === target
+}
+
 function hasSelectionModifier(event: Pick<PointerEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>): boolean {
   return event.ctrlKey || event.metaKey || event.shiftKey
 }
@@ -145,11 +165,11 @@ function App() {
   const [saveSignal, setSaveSignal] = useState(0)
   const [saveAllSignal, setSaveAllSignal] = useState(0)
   const [autoSave, setAutoSave] = useState(false)
+  const [externalRefreshSignal, setExternalRefreshSignal] = useState(0)
   const [workspaceTasks, setWorkspaceTasks] = useState<WorkspaceTaskScript[]>([])
   const [problems, setProblems] = useState<ProblemMatch[]>([])
   const [isTerminalManagerOpen, setIsTerminalManagerOpen] = useState(false)
-  const [isGitPanelOpen, setIsGitPanelOpen] = useState(false)
-  const [gitPanel, setGitPanel] = useState<GitPanelState>({ status: [], branches: null, selectedPath: null, diff: null, diffMode: 'inline', commitMessage: '', loading: false, error: null })
+  const [gitPanel, setGitPanel] = useState<GitPanelState>({ status: [], branches: null, selectedPath: null, selectedDiffStaged: false, diff: null, diffMode: 'inline', commitMessage: '', loading: false, error: null })
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
   const [sshHostInput, setSshHostInput] = useState('example.com')
   const [sshUsernameInput, setSshUsernameInput] = useState('user')
@@ -162,7 +182,7 @@ function App() {
     () => Object.values(dirtyEditorPathsByNode).reduce((count, paths) => count + paths.length, 0),
     [dirtyEditorPathsByNode],
   )
-  const terminalNodes = useMemo(() => nodes.filter((node): node is TerminalNodeModel => node.type !== 'editor'), [nodes])
+  const terminalNodes = useMemo(() => nodes.filter((node): node is TerminalNodeModel => node.type === 'terminal'), [nodes])
   const terminalNodeCount = terminalNodes.length
 
   const layout = useMemo<PersistedLayout>(
@@ -181,6 +201,18 @@ function App() {
             language: node.language,
             tabs: node.tabs,
             activeFilePath: node.activeFilePath,
+          }
+        }
+
+        if (node.type === 'source-control') {
+          return {
+            id: node.id,
+            type: node.type,
+            title: node.title,
+            x: node.x,
+            y: node.y,
+            width: node.width,
+            height: node.height,
           }
         }
 
@@ -222,18 +254,23 @@ function App() {
 
       const restoredNodes = await Promise.all(
         workspace.layout.nodes.map(async (node) => {
-          if (node.type === 'editor') {
+          if (node.type === 'editor' || node.type === 'source-control') {
             return node
           }
+
+          const sshTarget = workspace.kind === 'ssh' ? node.sshTarget ?? workspace.sshTarget : undefined
 
           if (node.sessionId) {
             const existingSession = await api.getTerminalSession(node.sessionId)
             if (existingSession) {
-              return { ...node, shell: existingSession.info.shell, cwd: existingSession.info.cwd }
+              if (!sshTarget || isSshSessionForTarget(existingSession, sshTarget)) {
+                return { ...node, shell: existingSession.info.shell, cwd: existingSession.info.cwd }
+              }
+
+              await api.closeTerminal(node.sessionId)
             }
           }
 
-          const sshTarget = workspace.kind === 'ssh' ? node.sshTarget ?? workspace.sshTarget : undefined
           const session = sshTarget
             ? await api.createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
             : await api.createTerminal({ cwd: workspace.path })
@@ -341,7 +378,7 @@ function App() {
     }
   }, [])
 
-  async function refreshFileTree() {
+  async function refreshFileTree(silent = false) {
     if (!activeWorkspaceId || activeWorkspace?.kind === 'ssh') {
       setFileEntries([])
       return
@@ -353,7 +390,11 @@ function App() {
       setFileEntries(entries)
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      window.alert(`Unable to load workspace files.\n\n${message}`)
+      if (silent) {
+        console.warn(`Unable to load workspace files: ${message}`)
+      } else {
+        window.alert(`Unable to load workspace files.\n\n${message}`)
+      }
     } finally {
       setIsLoadingFiles(false)
     }
@@ -512,6 +553,42 @@ function App() {
   }, [activeWorkspaceId])
 
   useEffect(() => {
+    if (!window.tcan?.onWorkspaceChanged || !activeWorkspaceId || activeWorkspace?.kind === 'ssh') {
+      return
+    }
+
+    let timeoutId: number | null = null
+    const hasSourceControlNode = nodes.some((node) => node.type === 'source-control')
+
+    const unsubscribe = window.tcan.onWorkspaceChanged((event) => {
+      if (event.workspaceId !== activeWorkspaceId) {
+        return
+      }
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+      timeoutId = window.setTimeout(() => {
+        timeoutId = null
+        setExternalRefreshSignal((current) => current + 1)
+        void refreshFileTree(true)
+        void refreshWorkspaceTasks()
+        if (hasSourceControlNode) {
+          void refreshGitPanel()
+        }
+      }, 300)
+    })
+
+    return () => {
+      if (timeoutId !== null) {
+        window.clearTimeout(timeoutId)
+      }
+      unsubscribe()
+    }
+    // Refresh helpers intentionally read the latest active workspace state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWorkspaceId, activeWorkspace?.kind, nodes])
+
+  useEffect(() => {
     if (!window.tcan?.onTerminalOutput) {
       return
     }
@@ -654,7 +731,7 @@ function App() {
 
     const terminalCount = workspaceId === activeWorkspaceId
       ? terminalNodeCount
-      : workspace.layout.nodes.filter((node) => node.type !== 'editor').length
+      : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
     const message = terminalCount
       ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
       : `Close workspace "${getWorkspaceName(workspace.path)}"?`
@@ -832,7 +909,7 @@ function App() {
   }
 
   async function handleKillAllTerminals() {
-    const terminalNodeIds = nodes.filter((node) => node.type !== 'editor').map((node) => node.id)
+    const terminalNodeIds = nodes.filter((node) => node.type === 'terminal').map((node) => node.id)
     if (!terminalNodeIds.length || !window.confirm('Kill all running T-CAN terminals? This will stop any agents/processes inside them.')) {
       return
     }
@@ -840,7 +917,7 @@ function App() {
     setIsKillingTerminals(true)
     try {
       await getApi().closeAllTerminals()
-      setNodes((current) => current.filter((node) => node.type === 'editor'))
+      setNodes((current) => current.filter((node) => node.type !== 'terminal'))
       setSelectedNodeIds((current) => current.filter((nodeId) => !terminalNodeIds.includes(nodeId)))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -908,6 +985,7 @@ function App() {
     if (
       target?.closest('.terminal-node') ||
       target?.closest('.editor-node') ||
+      target?.closest('.source-control-node') ||
       target?.closest('.canvas__hud') ||
       target?.closest('button')
     ) {
@@ -988,7 +1066,7 @@ function App() {
     }
 
     const target = event.target as HTMLElement | null
-    if (!target?.closest('.terminal-node__body') && !target?.closest('.editor-node__body')) {
+    if (!target?.closest('.terminal-node__body') && !target?.closest('.editor-node__body') && !target?.closest('.source-control-node__body')) {
       return
     }
 
@@ -1101,7 +1179,7 @@ function App() {
     window.addEventListener('pointercancel', stop)
   }
 
-  async function refreshGitPanel(selectedPath = gitPanel.selectedPath) {
+  async function refreshGitPanel(selectedPath = gitPanel.selectedPath, staged = gitPanel.selectedDiffStaged) {
     if (!activeWorkspaceId) {
       return
     }
@@ -1110,8 +1188,9 @@ function App() {
       const [status, branches] = await Promise.all([getApi().getGitStatus(activeWorkspaceId), getApi().getGitBranches(activeWorkspaceId)])
       const nextSelectedPath = selectedPath ?? status[0]?.path ?? null
       const selectedEntry = status.find((entry) => entry.path === nextSelectedPath)
-      const diff = nextSelectedPath ? await getApi().getGitFileDiff(activeWorkspaceId, nextSelectedPath, Boolean(selectedEntry?.staged && !selectedEntry.unstaged)) : null
-      setGitPanel((current) => ({ ...current, status, branches, selectedPath: nextSelectedPath, diff, loading: false, error: null }))
+      const nextStaged = selectedEntry ? Boolean(staged && selectedEntry.staged || selectedEntry.staged && !selectedEntry.unstaged) : false
+      const diff = nextSelectedPath ? await getApi().getGitFileDiff(activeWorkspaceId, nextSelectedPath, nextStaged) : null
+      setGitPanel((current) => ({ ...current, status, branches, selectedPath: nextSelectedPath, selectedDiffStaged: nextStaged, diff, loading: false, error: null }))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       setGitPanel((current) => ({ ...current, loading: false, error: message }))
@@ -1119,7 +1198,18 @@ function App() {
   }
 
   async function openGitPanel() {
-    setIsGitPanelOpen(true)
+    const existingNode = nodes.find((node) => node.type === 'source-control')
+    if (existingNode) {
+      setSelectedNodeIds([existingNode.id])
+      await refreshGitPanel()
+      return
+    }
+
+    const bounds = canvasRef.current?.getBoundingClientRect()
+    const position = bounds ? getViewportCenterWorldPoint(viewport, bounds) : { x: 80, y: 80 }
+    const node = createSourceControlNode({ x: position.x - 460, y: position.y - 310 })
+    setNodes((current) => [...current, node])
+    setSelectedNodeIds([node.id])
     await refreshGitPanel()
   }
 
@@ -1155,9 +1245,117 @@ function App() {
     command()
   }
 
+  const stagedChanges = gitPanel.status.filter((entry) => entry.staged || entry.conflicted)
+  const unstagedChanges = gitPanel.status.filter((entry) => entry.unstaged || entry.untracked || entry.conflicted)
+  const gitChangeCount = new Set(gitPanel.status.map((entry) => entry.path)).size
+  const gitSyncLabel = gitPanel.branches?.upstream
+    ? `${gitPanel.branches.upstream} · ↑${gitPanel.branches.ahead ?? 0} ↓${gitPanel.branches.behind ?? 0}`
+    : 'No upstream / publish branch'
+
+  function getGitStatusLabel(entry: GitStatusEntry): string {
+    if (entry.conflicted) return 'Conflict'
+    if (entry.untracked) return 'Untracked'
+    const code = `${entry.indexStatus}${entry.workTreeStatus}`.trim()
+    if (code.includes('R')) return 'Renamed'
+    if (code.includes('A')) return 'Added'
+    if (code.includes('D')) return 'Deleted'
+    if (code.includes('M')) return 'Modified'
+    return code || 'Changed'
+  }
+
+  function getGitStatusBadge(entry: GitStatusEntry): string {
+    if (entry.untracked) return 'U'
+    if (entry.conflicted) return `${entry.indexStatus}${entry.workTreeStatus}`.trim() || '!'
+    return `${entry.indexStatus}${entry.workTreeStatus}`.trim() || 'M'
+  }
+
+  function renderGitFile(entry: GitStatusEntry, staged: boolean) {
+    const active = entry.path === gitPanel.selectedPath && gitPanel.selectedDiffStaged === staged
+    const directory = getFileDirectory(entry.path)
+    return (
+      <button className={active ? 'git-panel__file git-panel__file--active' : 'git-panel__file'} key={`${staged ? 'staged' : 'changes'}-${entry.path}`} title={`${getGitStatusLabel(entry)} · ${entry.path}`} onClick={() => void refreshGitPanel(entry.path, staged)} type="button">
+        <span className="git-panel__file-icon">{getFileExtensionBadge(entry.path)}</span>
+        <span className="git-panel__file-main">
+          <span className="git-panel__file-name">{getFileTitle(entry.path)}</span>
+          {directory && <span className="git-panel__file-dir">{directory}</span>}
+        </span>
+        <strong className="git-panel__file-status">{getGitStatusBadge(entry)}</strong>
+      </button>
+    )
+  }
+
+  function renderSourceControlContent() {
+    return (
+      <div className="git-panel__body git-panel__body--vscode source-control-node__body">
+        <aside className="git-panel__scm">
+          <div className="git-panel__section-title"><span>⌄ REPOSITORIES</span></div>
+          <div className="git-panel__repo-row">
+            <span className="git-panel__repo-icon">▱</span>
+            <strong>{workspacePath ? getWorkspaceName(workspacePath) : 'Repository'}</strong>
+            <span className="git-panel__branch">⑂ {gitPanel.branches?.current ?? 'main'}</span>
+            <button className="git-panel__icon-button" disabled={gitPanel.loading} title="Fetch" onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitFetch(activeWorkspaceId))} type="button">⇣</button>
+            <button className="git-panel__icon-button" disabled={gitPanel.loading} title="Pull" onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPull(activeWorkspaceId))} type="button">↓</button>
+            <button className="git-panel__icon-button" disabled={gitPanel.loading} title="Push / Sync" onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPush(activeWorkspaceId))} type="button">↻</button>
+            <button className="git-panel__icon-button" title={gitSyncLabel} type="button">…</button>
+          </div>
+          <div className="git-panel__meta">
+            <span>{gitSyncLabel}</span>
+            {gitPanel.branches?.lastCommit && <span>{gitPanel.branches.lastCommit.hash} {gitPanel.branches.lastCommit.subject}</span>}
+            {gitPanel.loading && <span>Loading...</span>}
+          </div>
+          {gitPanel.error && <p className="git-panel__error">{gitPanel.error}</p>}
+          <div className="git-panel__commit git-panel__commit--top">
+            <textarea onChange={(event) => setGitPanel((current) => ({ ...current, commitMessage: event.target.value }))} placeholder="Message (Ctrl+Enter to commit on...)" value={gitPanel.commitMessage} onKeyDown={(event) => {
+              if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && activeWorkspaceId && gitPanel.commitMessage.trim()) void runGitAction(() => getApi().gitCommit(activeWorkspaceId, gitPanel.commitMessage))
+            }} />
+            <div className="git-panel__commit-row">
+              <button className="git-panel__commit-button" disabled={!gitPanel.commitMessage.trim()} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitCommit(activeWorkspaceId, gitPanel.commitMessage))} type="button">✓ Commit</button>
+              <button className="git-panel__commit-menu" title="Commit options" type="button">⌄</button>
+            </div>
+          </div>
+          <div className="git-panel__section-title">
+            <span>⌄ STAGED CHANGES</span><b>{stagedChanges.length}</b>
+            <button className="git-panel__icon-button" title="Unstage All" onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitUnstage(activeWorkspaceId, '.'))} type="button">−</button>
+          </div>
+          {stagedChanges.map((entry) => renderGitFile(entry, true))}
+          <div className="git-panel__section-title">
+            <span>⌄ CHANGES</span><b>{unstagedChanges.length}</b>
+            <button className="git-panel__icon-button" title="Stage All" onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitStage(activeWorkspaceId, '.'))} type="button">＋</button>
+            <button className="git-panel__icon-button git-panel__icon-button--danger" title="Discard All" onClick={() => activeWorkspaceId && window.confirm('Discard ALL working tree changes and untracked files?') && void runGitAction(() => getApi().gitDiscardAll(activeWorkspaceId))} type="button">⌫</button>
+          </div>
+          {unstagedChanges.length === 0 && stagedChanges.length === 0 ? <p className="git-panel__empty">No changes.</p> : unstagedChanges.map((entry) => renderGitFile(entry, false))}
+        </aside>
+        <main className="git-panel__diff">
+          {gitPanel.selectedPath && (
+            <div className="git-panel__file-actions">
+              <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitStage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Stage</button>
+              <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitUnstage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Unstage</button>
+              <button onClick={() => gitPanel.selectedPath && handleOpenFileFromExplorer(gitPanel.selectedPath)} type="button">Open</button>
+              <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, false).then((diff) => setGitPanel((current) => ({ ...current, selectedDiffStaged: false, diff })))} type="button">Unstaged Diff</button>
+              <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, true).then((diff) => setGitPanel((current) => ({ ...current, selectedDiffStaged: true, diff })))} type="button">Staged Diff</button>
+              <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileHistory(activeWorkspaceId, gitPanel.selectedPath).then((history) => window.alert(history.map((commit) => `${commit.hash} ${commit.date} ${commit.author}\n${commit.subject}`).join('\n\n') || 'No history.'))} type="button">History</button>
+              <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitBlame(activeWorkspaceId, gitPanel.selectedPath).then((blame) => window.alert(blame.slice(0, 60).map((line) => `${line.line} ${line.commit} ${line.author}: ${line.content}`).join('\n') || 'No blame.'))} type="button">Blame</button>
+              <button onClick={() => setGitPanel((current) => ({ ...current, diffMode: current.diffMode === 'inline' ? 'side-by-side' : 'inline' }))} type="button">{gitPanel.diffMode === 'inline' ? 'Side-by-side' : 'Inline'}</button>
+              <button className="command-button--danger" onClick={() => activeWorkspaceId && gitPanel.selectedPath && window.confirm(`Discard changes in ${gitPanel.selectedPath}?`) && void runGitAction(() => getApi().gitDiscard(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Discard</button>
+            </div>
+          )}
+          {gitPanel.selectedPath && <div className="git-panel__diff-title">{gitPanel.selectedDiffStaged ? 'Staged' : 'Unstaged'} diff: <strong>{gitPanel.selectedPath}</strong>{gitPanel.diff?.binary ? ' (binary)' : ''}</div>}
+          {gitPanel.diffMode === 'inline' ? (
+            <pre>{gitPanel.diff?.lines.map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+          ) : (
+            <div className="git-panel__side-by-side">
+              <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'add').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`old-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+              <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'delete').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`new-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
+            </div>
+          )}
+        </main>
+      </div>
+    )
+  }
+
   function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
     const target = event.target as HTMLElement | null
-    if (target?.closest('.terminal-node') || target?.closest('.editor-node') || target?.closest('.canvas-context-menu')) {
+    if (target?.closest('.terminal-node') || target?.closest('.editor-node') || target?.closest('.source-control-node') || target?.closest('.canvas-context-menu')) {
       return
     }
 
@@ -1225,75 +1423,6 @@ function App() {
                 ))}
               </section>
             </div>
-          </section>
-        </div>
-      )}
-      {isGitPanelOpen && (
-        <div className="app-modal" role="presentation" onMouseDown={() => setIsGitPanelOpen(false)}>
-          <section className="app-modal__panel app-modal__panel--wide git-panel" aria-label="Source control" onMouseDown={(event) => event.stopPropagation()}>
-            <header className="app-modal__header">
-              <strong>SOURCE CONTROL {gitPanel.branches?.current ? `// ${gitPanel.branches.current}` : ''}</strong>
-              <button className="icon-button" onClick={() => setIsGitPanelOpen(false)} type="button">x</button>
-            </header>
-            <div className="git-panel__toolbar">
-              <button className="command-button" disabled={gitPanel.loading} onClick={() => void refreshGitPanel()} type="button">Refresh</button>
-              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitFetch(activeWorkspaceId))} type="button">Fetch</button>
-              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPull(activeWorkspaceId))} type="button">Pull</button>
-              <button className="command-button" disabled={gitPanel.loading} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitPush(activeWorkspaceId))} type="button">Push</button>
-              <select
-                disabled={!activeWorkspaceId || gitPanel.loading}
-                onChange={(event) => event.target.value && activeWorkspaceId && void runGitAction(() => getApi().gitCheckoutBranch(activeWorkspaceId, event.target.value))}
-                value={gitPanel.branches?.current ?? ''}
-              >
-                {(gitPanel.branches?.branches ?? []).map((branch) => <option key={branch} value={branch}>{branch}</option>)}
-              </select>
-              <button className="command-button" onClick={() => {
-                const branch = window.prompt('New branch name')?.trim()
-                if (branch && activeWorkspaceId) void runGitAction(() => getApi().gitCreateBranch(activeWorkspaceId, branch))
-              }} type="button">New Branch</button>
-              <button className="command-button command-button--danger" disabled={!gitPanel.branches?.current} onClick={() => {
-                const branch = gitPanel.branches?.current
-                if (branch && window.confirm(`Delete branch ${branch}?`) && activeWorkspaceId) void runGitAction(() => getApi().gitDeleteBranch(activeWorkspaceId, branch))
-              }} type="button">Delete Branch</button>
-            </div>
-            {gitPanel.error && <p className="git-panel__error">{gitPanel.error}</p>}
-            <div className="git-panel__body">
-              <aside className="git-panel__files">
-                {gitPanel.status.length === 0 ? <p>No changes.</p> : gitPanel.status.map((entry) => (
-                  <button className={entry.path === gitPanel.selectedPath ? 'git-panel__file git-panel__file--active' : 'git-panel__file'} key={entry.path} onClick={() => void refreshGitPanel(entry.path)} type="button">
-                    <strong>{entry.indexStatus}{entry.workTreeStatus}</strong>
-                    <span>{entry.path}</span>
-                  </button>
-                ))}
-              </aside>
-              <main className="git-panel__diff">
-                {gitPanel.selectedPath && (
-                  <div className="git-panel__file-actions">
-                    <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitStage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Stage</button>
-                    <button onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitUnstage(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Unstage</button>
-                    <button onClick={() => gitPanel.selectedPath && handleOpenFileFromExplorer(gitPanel.selectedPath)} type="button">Open</button>
-                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, false).then((diff) => setGitPanel((current) => ({ ...current, diff })))} type="button">Unstaged Diff</button>
-                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileDiff(activeWorkspaceId, gitPanel.selectedPath, true).then((diff) => setGitPanel((current) => ({ ...current, diff })))} type="button">Staged Diff</button>
-                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitFileHistory(activeWorkspaceId, gitPanel.selectedPath).then((history) => window.alert(history.map((commit) => `${commit.hash} ${commit.date} ${commit.author}\n${commit.subject}`).join('\n\n') || 'No history.'))} type="button">History</button>
-                    <button onClick={() => activeWorkspaceId && gitPanel.selectedPath && void getApi().getGitBlame(activeWorkspaceId, gitPanel.selectedPath).then((blame) => window.alert(blame.slice(0, 60).map((line) => `${line.line} ${line.commit} ${line.author}: ${line.content}`).join('\n') || 'No blame.'))} type="button">Blame</button>
-                    <button onClick={() => setGitPanel((current) => ({ ...current, diffMode: current.diffMode === 'inline' ? 'side-by-side' : 'inline' }))} type="button">{gitPanel.diffMode === 'inline' ? 'Side-by-side' : 'Inline'}</button>
-                    <button className="command-button--danger" onClick={() => activeWorkspaceId && gitPanel.selectedPath && window.confirm(`Discard changes in ${gitPanel.selectedPath}?`) && void runGitAction(() => getApi().gitDiscard(activeWorkspaceId, gitPanel.selectedPath ?? ''))} type="button">Discard</button>
-                  </div>
-                )}
-                {gitPanel.diffMode === 'inline' ? (
-                  <pre>{gitPanel.diff?.lines.map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
-                ) : (
-                  <div className="git-panel__side-by-side">
-                    <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'add').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`old-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
-                    <pre>{gitPanel.diff?.lines.filter((line) => line.type !== 'delete').map((line, index) => <div className={`git-panel__diff-line git-panel__diff-line--${line.type}`} key={`new-${index}-${line.content}`}>{line.content || ' '}</div>)}</pre>
-                  </div>
-                )}
-              </main>
-            </div>
-            <footer className="git-panel__commit">
-              <input onChange={(event) => setGitPanel((current) => ({ ...current, commitMessage: event.target.value }))} placeholder="Commit message" value={gitPanel.commitMessage} />
-              <button className="command-button" disabled={!gitPanel.commitMessage.trim()} onClick={() => activeWorkspaceId && void runGitAction(() => getApi().gitCommit(activeWorkspaceId, gitPanel.commitMessage))} type="button">Commit</button>
-            </footer>
           </section>
         </div>
       )}
@@ -1487,12 +1616,53 @@ function App() {
                       onSelect={(event) => handleNodeSelect(node.id, event)}
                       onSplit={handleSplitEditor}
                       onTabsChange={handleEditorTabsChange}
+                      externalRefreshSignal={externalRefreshSignal}
                       saveAllSignal={saveAllSignal}
                       saveSignal={saveSignal}
                       scale={viewport.scale}
                       selected={selectedNodeIdSet.has(node.id)}
                       workspaceId={activeWorkspaceId}
                     />
+                  )
+                }
+
+                if (node.type === 'source-control') {
+                  return (
+                    <article
+                      className={selectedNodeIdSet.has(node.id) ? 'source-control-node source-control-node--selected' : 'source-control-node'}
+                      key={node.id}
+                      onPointerDownCapture={(event) => handleNodeSelect(node.id, event)}
+                      style={{
+                        transform: `translate(${canvasRect.left}px, ${canvasRect.top}px)`,
+                        width: canvasRect.right - canvasRect.left,
+                        height: canvasRect.bottom - canvasRect.top,
+                        '--node-scale': `${viewport.scale}`,
+                      } as CSSProperties}
+                    >
+                      <header className="source-control-node__header" onPointerDown={(event) => beginNodeMove(node.id, event)}>
+                        <div className="terminal-node__lights" aria-hidden="true">
+                          <span className="terminal-node__light terminal-node__light--red" />
+                          <span className="terminal-node__light terminal-node__light--amber" />
+                          <span className="terminal-node__light terminal-node__light--green" />
+                        </div>
+                        <div className="source-control-node__titleblock">
+                          <strong>{node.title.toUpperCase()} {gitPanel.branches?.current ? `// ${gitPanel.branches.current}` : ''}</strong>
+                          <span>{gitChangeCount} change{gitChangeCount === 1 ? '' : 's'} · {gitSyncLabel}</span>
+                        </div>
+                        <button className="git-panel__icon-button" disabled={gitPanel.loading} title="Refresh" onClick={() => void refreshGitPanel()} onPointerDown={(event) => event.stopPropagation()} type="button">↻</button>
+                        <button aria-label={`Close ${node.title}`} className="icon-button" onClick={() => void removeNode(node.id)} onPointerDown={(event) => event.stopPropagation()} type="button">x</button>
+                      </header>
+                      {renderSourceControlContent()}
+                      {RESIZE_DIRECTIONS.map((direction) => (
+                        <button
+                          aria-label={`Resize ${node.title} from ${direction}`}
+                          className={`source-control-node__resize-handle source-control-node__resize-handle--${direction}`}
+                          key={direction}
+                          onPointerDown={(event) => beginNodeResize(node.id, event, direction)}
+                          type="button"
+                        />
+                      ))}
+                    </article>
                   )
                 }
 

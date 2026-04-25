@@ -26,13 +26,15 @@ import {
   workspacePathRenameSchema,
   workspaceRequestSchema,
 } from '../shared/ipc'
-import type { GitBlameLine, GitBranchSummary, GitCommitSummary, GitDiffLine, GitFileDiff, GitStatusEntry, PersistedAppState, PersistedWorkspace, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTaskScript } from '../shared/types'
+import type { GitBlameLine, GitBranchSummary, GitCommitSummary, GitDiffLine, GitFileDiff, GitStatusEntry, PersistedAppState, PersistedWorkspace, TerminalSessionInfo, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTaskScript } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
 let store: JsonStore
 let persistedState: PersistedAppState
 let terminalDaemon: TerminalDaemonClient
+const workspaceWatchers = new Map<string, ReturnType<typeof fs.watch>>()
+const workspaceWatchDebounceTimers = new Map<string, NodeJS.Timeout>()
 
 function isPointInsideBounds(point: Electron.Point, bounds: Electron.Rectangle): boolean {
   return (
@@ -192,6 +194,11 @@ function normalizeSshTarget(target: string): string {
     throw new Error('Enter a single SSH target such as user@example.com or example.com')
   }
   return normalized
+}
+
+function isSshCommandForTarget(session: TerminalSessionInfo, target: string): boolean {
+  const command = session.command?.split(/[\\/]/).pop()?.toLowerCase()
+  return (command === 'ssh' || command === 'ssh.exe') && session.args?.[0] === target
 }
 
 function createSshTerminalNode(target: string) {
@@ -412,7 +419,30 @@ async function getGitBranches(workspaceId: string): Promise<GitBranchSummary> {
   const output = await runGit(workspaceId, ['branch', '--format=%(refname:short)%(if)%(HEAD)%(then) *%(end)'])
   const branches = output.split(/\r?\n/).filter(Boolean)
   const current = branches.find((branch) => branch.endsWith(' *'))?.replace(/ \*$/, '') ?? null
-  return { current, branches: branches.map((branch) => branch.replace(/ \*$/, '')) }
+  const summary: GitBranchSummary = { current, branches: branches.map((branch) => branch.replace(/ \*$/, '')) }
+
+  try {
+    const upstream = (await runGit(workspaceId, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{u}'])).trim()
+    summary.upstream = upstream || null
+    if (upstream) {
+      const counts = (await runGit(workspaceId, ['rev-list', '--left-right', '--count', `${upstream}...HEAD`])).trim().split(/\s+/).map(Number)
+      summary.behind = counts[0] ?? 0
+      summary.ahead = counts[1] ?? 0
+    }
+  } catch {
+    summary.upstream = null
+    summary.ahead = 0
+    summary.behind = 0
+  }
+
+  try {
+    const lastCommit = await runGit(workspaceId, ['log', '-1', '--date=short', '--pretty=format:%h%x1f%an%x1f%ad%x1f%s'])
+    summary.lastCommit = parseGitHistory(lastCommit)[0] ?? null
+  } catch {
+    summary.lastCommit = null
+  }
+
+  return summary
 }
 
 function parseGitDiff(pathName: string, staged: boolean, raw: string): GitFileDiff {
@@ -466,6 +496,72 @@ function parseGitBlame(output: string): GitBlameLine[] {
   })
 }
 
+function scheduleWorkspaceChanged(workspaceId: string, changedPath?: string): void {
+  const existingTimer = workspaceWatchDebounceTimers.get(workspaceId)
+  if (existingTimer) {
+    clearTimeout(existingTimer)
+  }
+
+  workspaceWatchDebounceTimers.set(workspaceId, setTimeout(() => {
+    workspaceWatchDebounceTimers.delete(workspaceId)
+    mainWindow?.webContents.send(IPC_CHANNELS.workspaceChanged, { workspaceId, path: changedPath })
+  }, 250))
+}
+
+function shouldIgnoreWatchedPath(changedPath: string): boolean {
+  return changedPath.split(/[\\/]/).some((part) => IGNORED_FILE_TREE_NAMES.has(part))
+}
+
+function refreshWorkspaceWatchers(): void {
+  const localWorkspaceIds = new Set(
+    persistedState.workspaces
+      .filter((workspace) => workspace.kind !== 'ssh')
+      .map((workspace) => workspace.id),
+  )
+
+  for (const [workspaceId, watcher] of workspaceWatchers) {
+    if (!localWorkspaceIds.has(workspaceId)) {
+      watcher.close()
+      workspaceWatchers.delete(workspaceId)
+    }
+  }
+
+  for (const workspace of persistedState.workspaces) {
+    if (workspace.kind === 'ssh' || workspaceWatchers.has(workspace.id) || !fs.existsSync(workspace.path)) {
+      continue
+    }
+
+    try {
+      const watcher = fs.watch(workspace.path, { recursive: true }, (_eventType, filename) => {
+        const changedPath = filename?.toString().replace(/\\/g, '/')
+        if (changedPath && shouldIgnoreWatchedPath(changedPath)) {
+          return
+        }
+        scheduleWorkspaceChanged(workspace.id, changedPath)
+      })
+      watcher.on('error', (error) => {
+        process.stderr.write(`[T-CAN] Workspace watcher failed for ${workspace.path}: ${error.message}\n`)
+        workspaceWatchers.delete(workspace.id)
+      })
+      workspaceWatchers.set(workspace.id, watcher)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`[T-CAN] Unable to watch workspace ${workspace.path}: ${message}\n`)
+    }
+  }
+}
+
+function closeWorkspaceWatchers(): void {
+  for (const watcher of workspaceWatchers.values()) {
+    watcher.close()
+  }
+  workspaceWatchers.clear()
+  for (const timer of workspaceWatchDebounceTimers.values()) {
+    clearTimeout(timer)
+  }
+  workspaceWatchDebounceTimers.clear()
+}
+
 function persistLayout(nextState: PersistedAppState): PersistedAppState {
   persistedState = {
     activeWorkspaceId: nextState.activeWorkspaceId,
@@ -479,6 +575,7 @@ function persistLayout(nextState: PersistedAppState): PersistedAppState {
     process.stderr.write(`[T-CAN] Failed to persist app state: ${message}\n`)
   }
 
+  refreshWorkspaceWatchers()
   return persistedState
 }
 
@@ -569,12 +666,23 @@ function registerIpcHandlers(): void {
       return persistedState
     }
 
-    const closingSessionIds = closingWorkspace.layout.nodes
-      .filter((node) => node.type !== 'editor')
-      .map((node) => node.sessionId)
-      .filter((sessionId): sessionId is string => Boolean(sessionId))
+    const closingSessionIds = new Set(
+      closingWorkspace.layout.nodes
+        .filter((node) => node.type !== 'editor' && node.type !== 'source-control')
+        .map((node) => node.sessionId)
+        .filter((sessionId): sessionId is string => Boolean(sessionId)),
+    )
 
-    await Promise.allSettled(closingSessionIds.map((sessionId) => terminalDaemon.close(sessionId)))
+    if (closingWorkspace.kind === 'ssh' && closingWorkspace.sshTarget) {
+      const sessions = await terminalDaemon.listSessions()
+      for (const session of sessions) {
+        if (isSshCommandForTarget(session, closingWorkspace.sshTarget)) {
+          closingSessionIds.add(session.sessionId)
+        }
+      }
+    }
+
+    await Promise.allSettled([...closingSessionIds].map((sessionId) => terminalDaemon.close(sessionId)))
     void persistTerminalRegistry()
 
     const closingIndex = persistedState.workspaces.findIndex((entry) => entry.id === request.workspaceId)
@@ -691,6 +799,12 @@ function registerIpcHandlers(): void {
       return
     }
     await runGit(request.workspaceId, request.staged ? ['restore', '--staged', '--worktree', '--', request.filePath] : ['restore', '--worktree', '--', request.filePath])
+  })
+
+  ipcMain.handle(IPC_CHANNELS.gitDiscardAll, async (_event, candidate) => {
+    const request = workspaceRequestSchema.parse(candidate)
+    await runGit(request.workspaceId, ['reset', '--hard'])
+    await runGit(request.workspaceId, ['clean', '-fd'])
   })
 
   ipcMain.handle(IPC_CHANNELS.gitCommit, async (_event, candidate) => {
@@ -846,6 +960,7 @@ app.whenReady().then(() => {
   })
   store = new JsonStore(path.join(app.getPath('userData'), 'app-state.json'))
   persistedState = store.load()
+  refreshWorkspaceWatchers()
   registerIpcHandlers()
   forwardPtyEvents()
   mainWindow = createMainWindow()
@@ -862,6 +977,7 @@ app.on('window-all-closed', () => {
 })
 
 app.on('before-quit', () => {
+  closeWorkspaceWatchers()
   void terminalDaemon.shutdownIfIdle()
   void persistTerminalRegistry()
 })

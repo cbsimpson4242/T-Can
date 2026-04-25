@@ -58,6 +58,10 @@ function canGetTerminalSession(): boolean {
   return typeof window.tcan?.getTerminalSession === 'function'
 }
 
+function canWriteClipboardText(): boolean {
+  return typeof window.tcan?.writeClipboardText === 'function'
+}
+
 export function TerminalNode(props: TerminalNodeProps) {
   const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
@@ -126,6 +130,21 @@ export function TerminalNode(props: TerminalNodeProps) {
     },
     [sessionId],
   )
+
+  const copySelectionToClipboard = useCallback(async () => {
+    const terminal = terminalRef.current
+    const text = terminal?.getSelection() ?? ''
+    if (!text) {
+      return
+    }
+
+    if (canWriteClipboardText()) {
+      await window.tcan.writeClipboardText(text)
+      return
+    }
+
+    await navigator.clipboard?.writeText(text)
+  }, [])
 
   const pasteFromClipboard = useCallback(
     async (mode: ClipboardTextMode, allowClipboardFallback = false) => {
@@ -207,8 +226,15 @@ export function TerminalNode(props: TerminalNodeProps) {
       }
 
       const lowerKey = event.key.toLowerCase()
+      const isAltCopyShortcut = event.altKey && !event.shiftKey && !event.ctrlKey && !event.metaKey && lowerKey === 'c'
       const isPasteShortcut = !event.shiftKey && !event.altKey && (event.ctrlKey || event.metaKey) && lowerKey === 'v'
       const isShiftInsert = event.shiftKey && !event.ctrlKey && !event.metaKey && !event.altKey && event.key === 'Insert'
+
+      if (isAltCopyShortcut && terminal.hasSelection()) {
+        event.preventDefault()
+        void copySelectionToClipboard()
+        return false
+      }
 
       if (!isPasteShortcut && !isShiftInsert) {
         return true
@@ -315,7 +341,7 @@ export function TerminalNode(props: TerminalNodeProps) {
       setIsHovered(false)
       terminal.dispose()
     }
-  }, [focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId, sshPassword])
+  }, [copySelectionToClipboard, focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId, sshPassword])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {

@@ -23,6 +23,7 @@ interface EditorNodeProps {
   autoSave: boolean
   saveSignal: number
   saveAllSignal: number
+  externalRefreshSignal: number
   onSelect(event: ReactPointerEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
   onResizeStart(event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection): void
@@ -73,6 +74,7 @@ export function EditorNode(props: EditorNodeProps) {
     autoSave,
     saveSignal,
     saveAllSignal,
+    externalRefreshSignal,
     onSelect,
     onMoveStart,
     onResizeStart,
@@ -185,6 +187,55 @@ export function EditorNode(props: EditorNodeProps) {
       cancelled = true
     }
   }, [contents, loadingPaths, tabs, workspaceId])
+
+  useEffect(() => {
+    if (externalRefreshSignal === 0) {
+      return
+    }
+
+    let cancelled = false
+    const pathsToReload = tabs
+      .map((tab) => tab.filePath)
+      .filter((filePath) => contents[filePath] !== undefined && contents[filePath] === savedContents[filePath] && !loadingPaths.has(filePath) && !savingPaths.has(filePath))
+
+    if (pathsToReload.length === 0) {
+      return () => {
+        cancelled = true
+      }
+    }
+
+    setLoadingPaths((current) => new Set([...current, ...pathsToReload]))
+    pathsToReload.forEach((filePath) => {
+      void window.tcan.readWorkspaceFile(workspaceId, filePath).then(
+        (result) => {
+          if (cancelled) {
+            return
+          }
+          setContents((current) => ({ ...current, [filePath]: result.content }))
+          setSavedContents((current) => ({ ...current, [filePath]: result.content }))
+        },
+        (readError) => {
+          if (!cancelled) {
+            setError(readError instanceof Error ? readError.message : String(readError))
+          }
+        },
+      ).finally(() => {
+        if (!cancelled) {
+          setLoadingPaths((current) => {
+            const next = new Set(current)
+            next.delete(filePath)
+            return next
+          })
+        }
+      })
+    })
+
+    return () => {
+      cancelled = true
+    }
+    // Reloads only clean open tabs; dirty tabs are never overwritten by file-system events.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [externalRefreshSignal])
 
   async function saveFile(filePath: string): Promise<void> {
     if (loadingPaths.has(filePath)) {

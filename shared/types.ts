@@ -1,4 +1,4 @@
-export type CanvasNodeType = 'terminal' | 'editor'
+export type CanvasNodeType = 'terminal' | 'editor' | 'source-control'
 export type NodeResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
 
 export interface CanvasNodeBase {
@@ -36,7 +36,11 @@ export interface EditorNode extends CanvasNodeBase {
   activeFilePath?: string
 }
 
-export type CanvasNode = TerminalNode | EditorNode
+export interface SourceControlNode extends CanvasNodeBase {
+  type: 'source-control'
+}
+
+export type CanvasNode = TerminalNode | EditorNode | SourceControlNode
 
 export interface Viewport {
   x: number
@@ -149,6 +153,11 @@ export interface TerminalPasteEvent {
   data: string
 }
 
+export interface WorkspaceChangedEvent {
+  workspaceId: string
+  path?: string
+}
+
 export interface WorkspaceTaskScript {
   name: string
   command: string
@@ -180,6 +189,10 @@ export interface GitStatusEntry {
 export interface GitBranchSummary {
   current: string | null
   branches: string[]
+  upstream?: string | null
+  ahead?: number
+  behind?: number
+  lastCommit?: GitCommitSummary | null
 }
 
 export interface GitDiffLine {

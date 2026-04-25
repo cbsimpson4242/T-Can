@@ -7,6 +7,7 @@ import {
   PtyManager,
   resolveDefaultShell,
   resolveShellArgs,
+  resolveWindowsExecutable,
   resolveWindowsFallbackShell,
   resolveWindowsShell,
   type PtyBackend,
@@ -81,6 +82,8 @@ describe('buildTerminalEnv', () => {
     expect(env.PATH).toContain('C:\\Users\\Chris\\AppData\\Roaming\\npm')
     expect(env.PATH).toContain('C:\\Users\\Chris\\.opencode\\bin')
     expect(env.PATH).toContain('C:\\Users\\Chris\\AppData\\Local\\Programs\\opencode\\bin')
+    expect(env.PATH).toContain('C:\\Windows\\System32\\OpenSSH')
+    expect(env.PATH).toContain('C:\\Program Files\\Git\\usr\\bin')
   })
 
   it('preserves Windows Path casing when augmenting agent locations', () => {
@@ -149,7 +152,20 @@ describe('PtyManager', () => {
       TERM: 'screen-256color',
       TEST_ENV: '1',
     })
-    expect(buildTerminalEnvironment({ TEST_ENV: '1' }, 'win32')).toEqual({ TEST_ENV: '1', PATH: '' })
+    expect(buildTerminalEnvironment({ TEST_ENV: '1' }, 'win32')).toEqual({
+      TEST_ENV: '1',
+      PATH: 'C:\\Windows\\System32\\OpenSSH;C:\\Program Files\\Git\\usr\\bin',
+    })
+  })
+
+  it('resolves Windows command names from the terminal PATH before spawning', () => {
+    expect(
+      resolveWindowsExecutable(
+        'ssh',
+        { PATH: 'C:\\Windows\\System32;C:\\Windows\\System32\\OpenSSH', PATHEXT: '.COM;.EXE;.BAT;.CMD' },
+        (candidate) => candidate === 'C:\\Windows\\System32\\OpenSSH\\ssh.EXE',
+      ),
+    ).toBe('C:\\Windows\\System32\\OpenSSH\\ssh.EXE')
   })
 
   it('creates, writes to, resizes, and closes PTY sessions', () => {
@@ -285,14 +301,20 @@ describe('PtyManager', () => {
     expect(backend.spawn).toHaveBeenNthCalledWith(1, 'C:\\Program Files\\PowerShell\\7\\pwsh.exe', ['-NoLogo'], {
       cols: 80,
       cwd: 'C:\\workspace',
-      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe', PATH: '' },
+      env: {
+        COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
+        PATH: 'C:\\Windows\\System32\\OpenSSH;C:\\Program Files\\Git\\usr\\bin',
+      },
       name: 'xterm-256color',
       rows: 24,
     })
     expect(backend.spawn).toHaveBeenNthCalledWith(2, 'C:\\Windows\\System32\\cmd.exe', ['/Q'], {
       cols: 80,
       cwd: 'C:\\workspace',
-      env: { COMSPEC: 'C:\\Windows\\System32\\cmd.exe', PATH: '' },
+      env: {
+        COMSPEC: 'C:\\Windows\\System32\\cmd.exe',
+        PATH: 'C:\\Windows\\System32\\OpenSSH;C:\\Program Files\\Git\\usr\\bin',
+      },
       name: 'xterm-256color',
       rows: 24,
     })

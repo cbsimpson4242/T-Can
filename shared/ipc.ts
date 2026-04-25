@@ -2,7 +2,7 @@ import { z } from 'zod'
 
 const canvasNodeBaseSchema = z.object({
   id: z.string(),
-  type: z.enum(['terminal', 'editor']).default('terminal'),
+  type: z.enum(['terminal', 'editor', 'source-control']).default('terminal'),
   title: z.string(),
   x: z.number(),
   y: z.number(),
@@ -34,7 +34,11 @@ export const editorNodeSchema = canvasNodeBaseSchema.extend({
   activeFilePath: z.string().optional(),
 })
 
-export const canvasNodeSchema = z.union([terminalNodeSchema, editorNodeSchema])
+export const sourceControlNodeSchema = canvasNodeBaseSchema.extend({
+  type: z.literal('source-control'),
+})
+
+export const canvasNodeSchema = z.union([terminalNodeSchema, editorNodeSchema, sourceControlNodeSchema])
 
 export const viewportSchema = z.object({
   x: z.number(),
@@ -179,6 +183,7 @@ export const IPC_CHANNELS = {
   gitStage: 'git:stage',
   gitUnstage: 'git:unstage',
   gitDiscard: 'git:discard',
+  gitDiscardAll: 'git:discard-all',
   gitCommit: 'git:commit',
   gitPush: 'git:push',
   gitPull: 'git:pull',
@@ -194,4 +199,5 @@ export const IPC_CHANNELS = {
   terminalOutput: 'terminal:output',
   terminalExit: 'terminal:exit',
   terminalPaste: 'terminal:paste',
+  workspaceChanged: 'workspace:changed',
 } as const

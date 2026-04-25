@@ -145,10 +145,40 @@ export function resolveShellArgs(shell: string, platform = process.platform): st
   return []
 }
 
-function resolveSpawnCommand(request: CreateTerminalRequest, defaultShell: string, platform = process.platform) {
+function hasPathSeparator(command: string): boolean {
+  return command.includes('\\') || command.includes('/')
+}
+
+export function resolveWindowsExecutable(
+  command: string,
+  env: NodeJS.ProcessEnv,
+  pathExists: (candidate: string) => boolean = fs.existsSync,
+): string {
+  if (hasPathSeparator(command)) {
+    return command
+  }
+
+  const pathValue = getEnvValue(env, 'PATH') ?? ''
+  const pathExtValue = getEnvValue(env, 'PATHEXT') ?? '.COM;.EXE;.BAT;.CMD'
+  const commandExt = path.win32.extname(command)
+  const extensions = commandExt ? [''] : pathExtValue.split(';').filter(Boolean)
+
+  for (const pathEntry of pathValue.split(';').filter(Boolean)) {
+    for (const extension of extensions) {
+      const candidate = path.win32.join(pathEntry, `${command}${extension}`)
+      if (pathExists(candidate)) {
+        return candidate
+      }
+    }
+  }
+
+  return command
+}
+
+function resolveSpawnCommand(request: CreateTerminalRequest, defaultShell: string, env: NodeJS.ProcessEnv, platform = process.platform) {
   if (request.command) {
     return {
-      file: request.command,
+      file: platform === 'win32' ? resolveWindowsExecutable(request.command, env) : request.command,
       args: request.args ?? [],
       label: request.command,
     }
@@ -180,11 +210,17 @@ export function buildTerminalEnvironment(
   const appData = env.APPDATA ?? (env.USERPROFILE ? path.win32.join(env.USERPROFILE, 'AppData', 'Roaming') : undefined)
   const localAppData = env.LOCALAPPDATA ?? (env.USERPROFILE ? path.win32.join(env.USERPROFILE, 'AppData', 'Local') : undefined)
   const userProfile = env.USERPROFILE
+  const systemRoot = getEnvValue(env, 'SystemRoot') ?? getEnvValue(env, 'WINDIR') ?? 'C:\\Windows'
+  const programFiles = getEnvValue(env, 'ProgramW6432') ?? getEnvValue(env, 'ProgramFiles') ?? 'C:\\Program Files'
+  const programFilesX86 = getEnvValue(env, 'ProgramFiles(x86)')
 
   const candidateEntries = [
     appData ? path.win32.join(appData, 'npm') : undefined,
     userProfile ? path.win32.join(userProfile, '.opencode', 'bin') : undefined,
     localAppData ? path.win32.join(localAppData, 'Programs', 'opencode', 'bin') : undefined,
+    path.win32.join(systemRoot, 'System32', 'OpenSSH'),
+    path.win32.join(programFiles, 'Git', 'usr', 'bin'),
+    programFilesX86 ? path.win32.join(programFilesX86, 'Git', 'usr', 'bin') : undefined,
   ].filter((entry): entry is string => Boolean(entry))
 
   const segments = new Set(currentPath.split(delimiter).filter(Boolean))
@@ -242,7 +278,7 @@ export class PtyManager {
     let handle: PtyHandle
 
     try {
-      const command = resolveSpawnCommand(request, this.defaultShell, this.platform)
+      const command = resolveSpawnCommand(request, this.defaultShell, env, this.platform)
       shell = command.label
       handle = this.backend.spawn(command.file, command.args, spawnOptions)
     } catch (error) {
