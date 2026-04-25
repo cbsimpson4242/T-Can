@@ -835,10 +835,18 @@ function App() {
 
   async function createDuplicateTerminalNodes(sourceNodes: TerminalNodeModel[], offset: { x: number; y: number }) {
     return Promise.all(sourceNodes.map(async (node) => {
+      const sourceSession = node.sessionId ? await getApi().getTerminalSession(node.sessionId) : null
+      const agentCommandLine = sourceSession?.info.agentCommandLine
       const sshTarget = node.sshTarget ?? (activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined)
       const session = sshTarget
         ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
         : await getApi().createTerminal({ cwd: node.cwd ?? workspacePath })
+
+      if (agentCommandLine) {
+        window.setTimeout(() => {
+          void getApi().writeTerminal(session.sessionId, `${agentCommandLine}\r`)
+        }, sshTarget ? 1500 : 150)
+      }
 
       return {
         ...createTerminalNode({ x: node.x + offset.x, y: node.y + offset.y }),

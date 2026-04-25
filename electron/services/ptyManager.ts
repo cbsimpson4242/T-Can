@@ -41,15 +41,120 @@ interface SessionRecord {
   handle: PtyHandle
   disposables: Disposable[]
   output: string
+  inputBuffer: string
 }
 
 const MAX_SESSION_OUTPUT_CHARS = 200_000
+const RECOGNIZED_AGENT_COMMANDS = new Set(['pi', 'opencode', 'claude', 'gemini', 'codex'])
 
 interface PtyManagerOptions {
   backend: PtyBackend
   defaultShell?: string
   env?: NodeJS.ProcessEnv
   platform?: NodeJS.Platform
+}
+
+function getCommandName(command: string): string {
+  return path.basename(command.replace(/^['"]|['"]$/g, '')).replace(/\.(cmd|exe|bat|ps1)$/i, '').toLowerCase()
+}
+
+function splitCommandLine(commandLine: string): string[] {
+  const tokens: string[] = []
+  let token = ''
+  let quote: '"' | "'" | null = null
+  let escaped = false
+
+  for (const character of commandLine.trim()) {
+    if (escaped) {
+      token += character
+      escaped = false
+      continue
+    }
+
+    if (character === '\\') {
+      escaped = true
+      continue
+    }
+
+    if (quote) {
+      if (character === quote) {
+        quote = null
+      } else {
+        token += character
+      }
+      continue
+    }
+
+    if (character === '"' || character === "'") {
+      quote = character
+      continue
+    }
+
+    if (/\s/.test(character)) {
+      if (token) {
+        tokens.push(token)
+        token = ''
+      }
+      continue
+    }
+
+    token += character
+  }
+
+  if (token) {
+    tokens.push(token)
+  }
+
+  return tokens
+}
+
+function isRecognizedAgentCommandLine(commandLine: string): boolean {
+  const [command] = splitCommandLine(commandLine)
+  return command ? RECOGNIZED_AGENT_COMMANDS.has(getCommandName(command)) : false
+}
+
+function quoteCommandArg(arg: string): string {
+  return /\s|["']/.test(arg) ? JSON.stringify(arg) : arg
+}
+
+function buildCommandLine(command?: string, args: string[] = []): string | undefined {
+  if (!command) {
+    return undefined
+  }
+
+  const commandLine = [command, ...args.map(quoteCommandArg)].join(' ')
+  return isRecognizedAgentCommandLine(commandLine) ? commandLine : undefined
+}
+
+function updateAgentCommandFromInput(session: SessionRecord, data: string): void {
+  for (const character of data) {
+    if (character === '\r' || character === '\n') {
+      const commandLine = session.inputBuffer.trim()
+      if (isRecognizedAgentCommandLine(commandLine)) {
+        session.info.agentCommandLine = commandLine
+      }
+      session.inputBuffer = ''
+      continue
+    }
+
+    if (character === '\u0003') {
+      session.inputBuffer = ''
+      continue
+    }
+
+    if (character === '\b' || character === '\u007f') {
+      session.inputBuffer = session.inputBuffer.slice(0, -1)
+      continue
+    }
+
+    if (character === '\u001b') {
+      continue
+    }
+
+    if (character >= ' ') {
+      session.inputBuffer += character
+    }
+  }
 }
 
 function getEnvValue(env: NodeJS.ProcessEnv, key: string): string | undefined {
@@ -328,6 +433,7 @@ export class PtyManager {
       shell,
       command: request.command,
       args: request.args,
+      agentCommandLine: buildCommandLine(request.command, request.args),
       pid: handle.pid,
     }
 
@@ -349,7 +455,7 @@ export class PtyManager {
       }),
     ]
 
-    this.sessions.set(sessionId, { info, handle, disposables, output: '' })
+    this.sessions.set(sessionId, { info, handle, disposables, output: '', inputBuffer: '' })
     return info
   }
 
@@ -370,7 +476,13 @@ export class PtyManager {
   }
 
   write(sessionId: string, data: string): void {
-    this.sessions.get(sessionId)?.handle.write(data)
+    const session = this.sessions.get(sessionId)
+    if (!session) {
+      return
+    }
+
+    updateAgentCommandFromInput(session, data)
+    session.handle.write(data)
   }
 
   resize(sessionId: string, cols: number, rows: number): void {
