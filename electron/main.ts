@@ -682,8 +682,9 @@ function registerIpcHandlers(): void {
       }
     }
 
-    await Promise.allSettled([...closingSessionIds].map((sessionId) => terminalDaemon.close(sessionId)))
-    void persistTerminalRegistry()
+    void Promise.allSettled([...closingSessionIds].map((sessionId) => terminalDaemon.close(sessionId))).finally(() => {
+      void persistTerminalRegistry()
+    })
 
     const closingIndex = persistedState.workspaces.findIndex((entry) => entry.id === request.workspaceId)
     const workspaces = persistedState.workspaces.filter((entry) => entry.id !== request.workspaceId)

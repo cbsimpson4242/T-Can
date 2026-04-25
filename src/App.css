@@ -1677,6 +1677,66 @@ button.topbar__tab:hover:not(:disabled),
   padding: calc(0.35rem * var(--node-scale));
 }
 
+.terminal-node__agent-message {
+  position: absolute;
+  top: calc(0.42rem * var(--node-scale));
+  left: calc(0.55rem * var(--node-scale));
+  right: calc(0.55rem * var(--node-scale));
+  z-index: 3;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  gap: calc(0.45rem * var(--node-scale));
+  max-height: calc(2.85rem * var(--node-scale));
+  padding: calc(0.36rem * var(--node-scale)) calc(0.5rem * var(--node-scale));
+  border: 1px solid rgba(0, 241, 253, 0.35);
+  border-radius: calc(6px * var(--node-scale));
+  background: rgba(3, 10, 12, 0.86);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.42), inset 0 0 18px rgba(0, 241, 253, 0.05);
+  pointer-events: none;
+}
+
+.terminal-node__agent-message-label {
+  color: var(--cyan);
+  font-size: calc(0.55rem * var(--node-scale));
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: calc(1rem * var(--node-scale));
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.terminal-node__agent-message-viewport {
+  min-width: 0;
+  max-height: calc(2rem * var(--node-scale));
+  overflow: hidden;
+  color: rgba(237, 242, 239, 0.92);
+  font-family: Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace;
+  font-size: calc(0.72rem * var(--node-scale));
+  line-height: calc(1rem * var(--node-scale));
+}
+
+.terminal-node__agent-message-text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-node__agent-message-text--scrolling {
+  animation: terminal-agent-message-scroll var(--agent-message-scroll-duration, 12s) ease-in-out infinite;
+}
+
+@keyframes terminal-agent-message-scroll {
+  0%, 18% {
+    transform: translateY(0);
+  }
+  72%, 88% {
+    transform: translateY(calc(-100% + 2rem * var(--node-scale)));
+  }
+  100% {
+    transform: translateY(0);
+  }
+}
+
 .terminal-node__terminal .xterm-viewport {
   scrollbar-color: transparent transparent;
   scrollbar-width: none;

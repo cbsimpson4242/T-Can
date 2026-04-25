@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
 import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
 import { EditorNode } from './components/EditorNode'
@@ -29,6 +29,8 @@ interface CanvasContextMenuState {
   x: number
   y: number
 }
+
+const DUPLICATE_NODE_OFFSET = 45
 
 interface GitPanelState {
   status: GitStatusEntry[]
@@ -142,6 +144,7 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const isRestoringWorkspaceRef = useRef(false)
+  const closingWorkspaceIdsRef = useRef(new Set<string>())
   const [workspaces, setWorkspaces] = useState<PersistedWorkspace[]>([])
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(null)
   const activeWorkspace = useMemo(
@@ -678,15 +681,9 @@ function App() {
         await getApi().saveLayout(layout)
       }
       const nextState = await getApi().openSshWorkspace(target)
-      setSshPasswords((current) => {
-        const next = { ...current }
-        if (password) {
-          next[target] = password
-        } else {
-          delete next[target]
-        }
-        return next
-      })
+      if (password) {
+        setSshPasswords((current) => ({ ...current, [target]: password }))
+      }
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
       setIsSshDialogOpen(false)
@@ -724,28 +721,34 @@ function App() {
   }
 
   async function handleCloseWorkspace(workspaceId: string) {
+    if (closingWorkspaceIdsRef.current.has(workspaceId)) {
+      return
+    }
+
     const workspace = workspaces.find((entry) => entry.id === workspaceId)
     if (!workspace) {
       return
     }
 
-    const terminalCount = workspaceId === activeWorkspaceId
-      ? terminalNodeCount
-      : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
-    const message = terminalCount
-      ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
-      : `Close workspace "${getWorkspaceName(workspace.path)}"?`
+    closingWorkspaceIdsRef.current.add(workspaceId)
 
-    if (workspaceId === activeWorkspaceId && dirtyEditorPathCount > 0 && !window.confirm(`Close workspace with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}?`)) {
-      return
-    }
-
-    if (!window.confirm(message)) {
-      return
-    }
-
-    setClosingWorkspaceId(workspaceId)
     try {
+      const terminalCount = workspaceId === activeWorkspaceId
+        ? terminalNodeCount
+        : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
+      const message = terminalCount
+        ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
+        : `Close workspace "${getWorkspaceName(workspace.path)}"?`
+
+      if (workspaceId === activeWorkspaceId && dirtyEditorPathCount > 0 && !window.confirm(`Close workspace with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}?`)) {
+        return
+      }
+
+      if (!window.confirm(message)) {
+        return
+      }
+
+      setClosingWorkspaceId(workspaceId)
       if (activeWorkspaceId) {
         await getApi().saveLayout(layout)
       }
@@ -757,9 +760,14 @@ function App() {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to close workspace.\n\n${message}`)
     } finally {
+      closingWorkspaceIdsRef.current.delete(workspaceId)
       setClosingWorkspaceId(null)
     }
   }
+
+  const handleSshPasswordCaptured = useCallback((target: string, password: string) => {
+    setSshPasswords((current) => current[target] === password ? current : { ...current, [target]: password })
+  }, [])
 
   async function createTerminalAtCenter(options: { title?: string; cwd?: string | null; command?: string; args?: string[]; taskName?: string; offset?: { x: number; y: number } } = {}) {
     const bounds = canvasRef.current?.getBoundingClientRect()
@@ -818,10 +826,61 @@ function App() {
 
   async function handleDuplicateTerminal(node: TerminalNodeModel) {
     try {
-      await createTerminalAtCenter({ title: `${node.title} copy`, cwd: node.cwd ?? workspacePath, offset: { x: 45, y: 45 } })
+      await createTerminalAtCenter({ title: `${node.title} copy`, cwd: node.cwd ?? workspacePath, offset: { x: DUPLICATE_NODE_OFFSET, y: DUPLICATE_NODE_OFFSET } })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to duplicate terminal.\n\n${message}`)
+    }
+  }
+
+  async function createDuplicateTerminalNodes(sourceNodes: TerminalNodeModel[], offset: { x: number; y: number }) {
+    return Promise.all(sourceNodes.map(async (node) => {
+      const sshTarget = node.sshTarget ?? (activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined)
+      const session = sshTarget
+        ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
+        : await getApi().createTerminal({ cwd: node.cwd ?? workspacePath })
+
+      return {
+        ...createTerminalNode({ x: node.x + offset.x, y: node.y + offset.y }),
+        title: `${node.title} copy`,
+        width: node.width,
+        height: node.height,
+        sessionId: session.sessionId,
+        shell: session.shell,
+        sshTarget,
+        cwd: session.cwd,
+        taskName: node.taskName,
+      }
+    }))
+  }
+
+  async function handleDuplicateSelectedNodes() {
+    const sourceNodes = nodes.filter((node) => selectedNodeIdSet.has(node.id) && (node.type === 'editor' || node.type === 'terminal' || !node.type))
+    if (!sourceNodes.length) {
+      return
+    }
+
+    try {
+      const editorNodes = sourceNodes.filter((node) => node.type === 'editor')
+      const terminalSourceNodes = sourceNodes.filter((node): node is TerminalNodeModel => node.type === 'terminal' || !node.type)
+      const duplicatedEditors = editorNodes.map((node) => ({
+        ...createEditorNode({ x: node.x + DUPLICATE_NODE_OFFSET, y: node.y + DUPLICATE_NODE_OFFSET }, node.activeFilePath ?? node.filePath),
+        title: `${node.title} copy`,
+        filePath: node.filePath,
+        language: node.language,
+        tabs: node.tabs?.map((tab) => ({ ...tab })),
+        activeFilePath: node.activeFilePath,
+        width: node.width,
+        height: node.height,
+      }))
+      const duplicatedTerminals = await createDuplicateTerminalNodes(terminalSourceNodes, { x: DUPLICATE_NODE_OFFSET, y: DUPLICATE_NODE_OFFSET })
+      const duplicatedNodes = [...duplicatedEditors, ...duplicatedTerminals]
+
+      setNodes((current) => [...current, ...duplicatedNodes])
+      setSelectedNodeIds(duplicatedNodes.map((node) => node.id))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to duplicate selected windows.\n\n${message}`)
     }
   }
 
@@ -1086,6 +1145,95 @@ function App() {
     event.preventDefault()
     event.stopPropagation()
     const actionNodeIds = getActionNodeIds(nodeId)
+    const sourceNode = nodes.find((node) => node.id === nodeId)
+    const isAltDuplicateDrag = event.altKey && (sourceNode?.type === 'terminal' || !sourceNode?.type)
+
+    if (isAltDuplicateDrag) {
+      const sourceTerminals = nodes.filter((node): node is TerminalNodeModel => actionNodeIds.includes(node.id) && (node.type === 'terminal' || !node.type))
+      if (sourceTerminals.length === 0) {
+        return
+      }
+
+      setSelectedNodeIds(sourceTerminals.map((node) => node.id))
+
+      const startX = event.clientX
+      const startY = event.clientY
+      let previousX = event.clientX
+      let previousY = event.clientY
+      let latestX = event.clientX
+      let latestY = event.clientY
+      let duplicateNodeIds: string[] | null = null
+      let isCreatingDuplicates = false
+      let isDisposed = false
+
+      const moveDuplicateNodes = (pointerEvent: PointerEvent) => {
+        latestX = pointerEvent.clientX
+        latestY = pointerEvent.clientY
+
+        if (!duplicateNodeIds) {
+          const movedX = Math.abs(pointerEvent.clientX - startX)
+          const movedY = Math.abs(pointerEvent.clientY - startY)
+          if ((movedX < SELECTION_DRAG_THRESHOLD && movedY < SELECTION_DRAG_THRESHOLD) || isCreatingDuplicates) {
+            return
+          }
+
+          isCreatingDuplicates = true
+          void createDuplicateTerminalNodes(sourceTerminals, {
+            x: (latestX - startX) / viewport.scale,
+            y: (latestY - startY) / viewport.scale,
+          }).then((duplicatedNodes) => {
+            if (isDisposed) {
+              duplicatedNodes.forEach((node) => node.sessionId && void getApi().closeTerminal(node.sessionId))
+              return
+            }
+
+            duplicateNodeIds = duplicatedNodes.map((node) => node.id)
+            previousX = latestX
+            previousY = latestY
+            setNodes((current) => [...current, ...duplicatedNodes])
+            setSelectedNodeIds(duplicateNodeIds)
+          }).catch((error) => {
+            const message = error instanceof Error ? error.message : String(error)
+            window.alert(`Unable to duplicate selected terminals.\n\n${message}`)
+          }).finally(() => {
+            isCreatingDuplicates = false
+          })
+          return
+        }
+
+        const deltaX = (pointerEvent.clientX - previousX) / viewport.scale
+        const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
+        const duplicateNodeIdSet = new Set(duplicateNodeIds)
+
+        setNodes((current) =>
+          current.map((node) =>
+            duplicateNodeIdSet.has(node.id)
+              ? {
+                  ...node,
+                  x: node.x + deltaX,
+                  y: node.y + deltaY,
+                }
+              : node,
+          ),
+        )
+
+        previousX = pointerEvent.clientX
+        previousY = pointerEvent.clientY
+      }
+
+      const stopDuplicateDrag = () => {
+        isDisposed = true
+        window.removeEventListener('pointermove', moveDuplicateNodes)
+        window.removeEventListener('pointerup', stopDuplicateDrag)
+        window.removeEventListener('pointercancel', stopDuplicateDrag)
+      }
+
+      window.addEventListener('pointermove', moveDuplicateNodes)
+      window.addEventListener('pointerup', stopDuplicateDrag)
+      window.addEventListener('pointercancel', stopDuplicateDrag)
+      return
+    }
+
     const actionNodeIdSet = new Set(actionNodeIds)
     setSelectedNodeIds(actionNodeIds)
 
@@ -1240,6 +1388,18 @@ function App() {
     setCanvasContextMenu(point)
   }
 
+  function handleSelectedTerminalContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    event.preventDefault()
+    event.stopPropagation()
+
+    const point = getCanvasPoint(event.clientX, event.clientY)
+    if (!point) {
+      return
+    }
+
+    setCanvasContextMenu(point)
+  }
+
   function runCanvasContextCommand(command: () => void) {
     setCanvasContextMenu(null)
     command()
@@ -1251,6 +1411,7 @@ function App() {
   const gitSyncLabel = gitPanel.branches?.upstream
     ? `${gitPanel.branches.upstream} · ↑${gitPanel.branches.ahead ?? 0} ↓${gitPanel.branches.behind ?? 0}`
     : 'No upstream / publish branch'
+  const selectedDuplicableNodeCount = nodes.filter((node) => selectedNodeIdSet.has(node.id) && node.type !== 'source-control').length
 
   function getGitStatusLabel(entry: GitStatusEntry): string {
     if (entry.conflicted) return 'Conflict'
@@ -1677,9 +1838,11 @@ function App() {
                     }}
                     node={node}
                     onClose={() => void removeNode(node.id)}
+                    onContextMenu={selectedNodeIdSet.has(node.id) && selectedDuplicableNodeCount > 1 ? handleSelectedTerminalContextMenu : undefined}
                     onMoveStart={(event) => beginNodeMove(node.id, event)}
                     onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
                     onSelect={(event) => handleNodeSelect(node.id, event)}
+                    onSshPasswordCaptured={handleSshPasswordCaptured}
                     scale={viewport.scale}
                     selected={selectedNodeIdSet.has(node.id)}
                     sessionId={node.sessionId}
@@ -1724,6 +1887,14 @@ function App() {
                   type="button"
                 >
                   {isCreatingTerminal ? 'Creating terminal...' : 'New terminal'}
+                </button>
+                <button
+                  disabled={selectedDuplicableNodeCount === 0}
+                  onClick={() => runCanvasContextCommand(() => void handleDuplicateSelectedNodes())}
+                  role="menuitem"
+                  type="button"
+                >
+                  Duplicate selected{selectedDuplicableNodeCount > 0 ? ` (${selectedDuplicableNodeCount})` : ''}
                 </button>
                 <button
                   disabled={isBootstrapping || isKillingTerminals || terminalNodeCount === 0}

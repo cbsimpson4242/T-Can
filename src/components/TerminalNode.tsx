@@ -18,6 +18,14 @@ import { subscribeToTerminalOutput, subscribeToTerminalPaste, useTerminalExit } 
 const BASE_TERMINAL_FONT_SIZE = 13
 const PTY_RESIZE_DEBOUNCE_MS = 150
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
+const AI_AGENT_COMMAND_PATTERN = /^(?:(?:npx|pnpm\s+dlx|yarn\s+dlx|bunx|uvx)\s+)?(?:pi(?:\s+agent)?|opencode|claude(?:\s+code)?|codex|gemini(?:\s+cli)?|aider|cursor(?:-agent)?)(?:\s|$)/i
+const AI_AGENT_OUTPUT_PATTERN = /\b(?:pi\s+(?:coding\s+)?agent|opencode|claude\s+code|codex|gemini\s+cli|aider|cursor\s+agent)\b/i
+const AI_AGENT_PROMPT_SCROLL_LINE_THRESHOLD = 2
+const AI_AGENT_PROMPT_SCROLL_CHAR_THRESHOLD = 120
+const ESC = String.fromCharCode(27)
+const BEL = String.fromCharCode(7)
+const BRACKETED_PASTE_START = `${ESC}[200~`
+const BRACKETED_PASTE_END = `${ESC}[201~`
 
 interface ProjectedNodeRect {
   left: number
@@ -36,9 +44,11 @@ interface TerminalNodeProps {
   scale: number
   selected: boolean
   onSelect(event: ReactPointerEvent<HTMLElement>): void
+  onContextMenu?(event: ReactMouseEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
   onResizeStart(event: ReactPointerEvent<HTMLButtonElement>, direction: NodeResizeDirection): void
   onClose(): void
+  onSshPasswordCaptured?(target: string, password: string): void
 }
 
 function getShellLabel(shell?: string): string | null {
@@ -62,23 +72,82 @@ function canWriteClipboardText(): boolean {
   return typeof window.tcan?.writeClipboardText === 'function'
 }
 
+function normalizeTerminalPrompt(text: string): string {
+  const withoutAnsi = text
+    .replace(new RegExp(`${ESC}\\[[0-?]*[ -/]*[@-~]`, 'g'), '')
+    .replace(new RegExp(`${ESC}\\][^${BEL}]*(?:${BEL}|${ESC}\\\\)`, 'g'), '')
+
+  return Array.from(withoutAnsi)
+    .filter((character) => {
+      const code = character.charCodeAt(0)
+      return code === 9 || code === 10 || code === 13 || (code >= 32 && code !== 127)
+    })
+    .join('')
+}
+
+function isSshPasswordPrompt(text: string): boolean {
+  const normalized = normalizeTerminalPrompt(text)
+  return /(?:password|passphrase)(?:\s+for\s+[^:\r\n]+|[^:\r\n]*)?:\s*$/i.test(normalized)
+}
+
+function stripBracketedPasteMarkers(input: string): string {
+  return input.split(BRACKETED_PASTE_START).join('').split(BRACKETED_PASTE_END).join('')
+}
+
+function normalizeSubmittedAgentMessage(input: string): string {
+  return stripBracketedPasteMarkers(input)
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .trim()
+}
+
+function isKnownAiAgentCommand(input: string): boolean {
+  return AI_AGENT_COMMAND_PATTERN.test(input.trim())
+}
+
+function containsKnownAiAgentOutput(data: string): boolean {
+  return AI_AGENT_OUTPUT_PATTERN.test(data)
+}
+
 export function TerminalNode(props: TerminalNodeProps) {
-  const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onMoveStart, onResizeStart, onClose } = props
+  const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onContextMenu, onMoveStart, onResizeStart, onClose, onSshPasswordCaptured } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const lastSentTerminalSizeRef = useRef<{ cols: number; rows: number } | null>(null)
   const sshPasswordPromptBufferRef = useRef('')
   const hasSentSshPasswordRef = useRef(false)
+  const currentSshPasswordRef = useRef(sshPassword)
+  const onSshPasswordCapturedRef = useRef(onSshPasswordCaptured)
+  const isCapturingSshPasswordRef = useRef(false)
+  const capturedSshPasswordRef = useRef('')
   const resizeTimerRef = useRef<number | null>(null)
   const resizeRafRef = useRef<number | null>(null)
+  const inputBufferRef = useRef('')
+  const isAiAgentSessionRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
+  const [isAiAgentSession, setIsAiAgentSession] = useState(false)
+  const [lastAgentMessage, setLastAgentMessage] = useState('')
   const exitCode = useTerminalExit(sessionId)
 
   const sessionLabel = useMemo(() => (node.sshTarget ? `SSH ${node.sshTarget}` : workspacePath ?? 'Home shell'), [node.sshTarget, workspacePath])
   const shellLabel = useMemo(() => getShellLabel(shell), [shell])
+
+  useEffect(() => {
+    currentSshPasswordRef.current = sshPassword
+    if (sshPassword && sessionId && !hasSentSshPasswordRef.current && isSshPasswordPrompt(sshPasswordPromptBufferRef.current)) {
+      hasSentSshPasswordRef.current = true
+      isCapturingSshPasswordRef.current = false
+      capturedSshPasswordRef.current = ''
+      void window.tcan.writeTerminal(sessionId, `${sshPassword}\r`)
+    }
+  }, [sessionId, sshPassword])
+
+  useEffect(() => {
+    onSshPasswordCapturedRef.current = onSshPasswordCaptured
+  }, [onSshPasswordCaptured])
 
   const focusTerminal = useCallback(() => {
     terminalRef.current?.focus()
@@ -138,13 +207,82 @@ export function TerminalNode(props: TerminalNodeProps) {
       return
     }
 
-    if (canWriteClipboardText()) {
-      await window.tcan.writeClipboardText(text)
+    try {
+      if (canWriteClipboardText()) {
+        await window.tcan.writeClipboardText(text)
+        return
+      }
+
+      await navigator.clipboard?.writeText(text)
+    } catch {
+      // Ignore clipboard failures so Alt+C never leaks into the terminal when text is selected.
+    }
+  }, [])
+
+  const markAiAgentSession = useCallback(() => {
+    if (isAiAgentSessionRef.current) {
       return
     }
 
-    await navigator.clipboard?.writeText(text)
+    isAiAgentSessionRef.current = true
+    setIsAiAgentSession(true)
   }, [])
+
+  const handleSubmittedInput = useCallback(
+    (input: string) => {
+      const message = normalizeSubmittedAgentMessage(input)
+      if (!message) {
+        return
+      }
+
+      if (isKnownAiAgentCommand(message)) {
+        markAiAgentSession()
+        return
+      }
+
+      if (isAiAgentSessionRef.current && !isCapturingSshPasswordRef.current) {
+        setLastAgentMessage(message)
+      }
+    },
+    [markAiAgentSession],
+  )
+
+  const processTerminalInput = useCallback(
+    (data: string) => {
+      if (!data) {
+        return
+      }
+
+      const cleanedData = stripBracketedPasteMarkers(data)
+      for (const character of cleanedData) {
+        if (character === '\r') {
+          handleSubmittedInput(inputBufferRef.current)
+          inputBufferRef.current = ''
+          continue
+        }
+
+        if (character === '\n') {
+          inputBufferRef.current = `${inputBufferRef.current}\n`
+          continue
+        }
+
+        if (character === '\u0003' || character === '\u001b' || character === '\u0015') {
+          inputBufferRef.current = ''
+          continue
+        }
+
+        if (character === '\u007f' || character === '\b') {
+          inputBufferRef.current = inputBufferRef.current.slice(0, -1)
+          continue
+        }
+
+        if (character >= ' ' || character === '\t') {
+          inputBufferRef.current = `${inputBufferRef.current}${character}`
+        }
+      }
+    },
+    [handleSubmittedInput],
+  )
 
   const pasteFromClipboard = useCallback(
     async (mode: ClipboardTextMode, allowClipboardFallback = false) => {
@@ -280,29 +418,77 @@ export function TerminalNode(props: TerminalNodeProps) {
     let disposed = false
     sshPasswordPromptBufferRef.current = ''
     hasSentSshPasswordRef.current = false
+    isCapturingSshPasswordRef.current = false
+    capturedSshPasswordRef.current = ''
 
-    const maybeSendSshPassword = (data: string) => {
-      if (!sshPassword || hasSentSshPasswordRef.current) {
+    const maybeHandleSshPasswordPrompt = (data: string) => {
+      sshPasswordPromptBufferRef.current = `${sshPasswordPromptBufferRef.current}${data}`.slice(-300)
+      if (!isSshPasswordPrompt(sshPasswordPromptBufferRef.current)) {
         return
       }
 
-      sshPasswordPromptBufferRef.current = `${sshPasswordPromptBufferRef.current}${data}`.slice(-300)
-      if (/password(?: for [^:\r\n]+)?\s*:\s*$/i.test(sshPasswordPromptBufferRef.current)) {
+      const currentSshPassword = currentSshPasswordRef.current
+      if (currentSshPassword && !hasSentSshPasswordRef.current) {
         hasSentSshPasswordRef.current = true
-        void window.tcan.writeTerminal(sessionId, `${sshPassword}\r`)
+        void window.tcan.writeTerminal(sessionId, `${currentSshPassword}\r`)
+        return
+      }
+
+      if (!currentSshPassword && node.sshTarget) {
+        isCapturingSshPasswordRef.current = true
+        capturedSshPasswordRef.current = ''
+      }
+    }
+
+    const captureManualSshPasswordInput = (data: string) => {
+      if (!node.sshTarget || !isCapturingSshPasswordRef.current || currentSshPasswordRef.current) {
+        return
+      }
+
+      for (const character of data) {
+        if (character === '\r' || character === '\n') {
+          const capturedPassword = capturedSshPasswordRef.current
+          isCapturingSshPasswordRef.current = false
+          capturedSshPasswordRef.current = ''
+          if (capturedPassword) {
+            onSshPasswordCapturedRef.current?.(node.sshTarget, capturedPassword)
+          }
+          continue
+        }
+
+        if (character === '\u0003' || character === '\u001b') {
+          isCapturingSshPasswordRef.current = false
+          capturedSshPasswordRef.current = ''
+          continue
+        }
+
+        if (character === '\b' || character === '\u007f') {
+          capturedSshPasswordRef.current = capturedSshPasswordRef.current.slice(0, -1)
+          continue
+        }
+
+        if (character >= ' ') {
+          capturedSshPasswordRef.current = `${capturedSshPasswordRef.current}${character}`
+        }
       }
     }
 
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
       terminal.write(data)
-      maybeSendSshPassword(data)
+      maybeHandleSshPasswordPrompt(data)
+      if (containsKnownAiAgentOutput(data)) {
+        markAiAgentSession()
+      }
     })
 
     if (canGetTerminalSession()) {
       void window.tcan.getTerminalSession(sessionId).then((snapshot) => {
         if (!disposed && snapshot?.output) {
           terminal.write(snapshot.output)
-          maybeSendSshPassword(snapshot.output)
+          maybeHandleSshPasswordPrompt(snapshot.output)
+          if (containsKnownAiAgentOutput(snapshot.output)) {
+            markAiAgentSession()
+          }
         }
       })
     }
@@ -312,6 +498,8 @@ export function TerminalNode(props: TerminalNodeProps) {
     })
 
     const dataDisposable = terminal.onData((data) => {
+      processTerminalInput(data)
+      captureManualSshPasswordInput(data)
       void window.tcan.writeTerminal(sessionId, data)
     })
 
@@ -336,12 +524,16 @@ export function TerminalNode(props: TerminalNodeProps) {
       }
       fitAddonRef.current = null
       terminalRef.current = null
+      inputBufferRef.current = ''
+      isAiAgentSessionRef.current = false
       setIsReady(false)
       setIsFocused(false)
       setIsHovered(false)
+      setIsAiAgentSession(false)
+      setLastAgentMessage('')
       terminal.dispose()
     }
-  }, [copySelectionToClipboard, focusTerminal, node.title, pasteFromClipboard, pasteText, sendTerminalResize, sessionId, sshPassword])
+  }, [copySelectionToClipboard, focusTerminal, markAiAgentSession, node.sshTarget, node.title, pasteFromClipboard, pasteText, processTerminalInput, sendTerminalResize, sessionId])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {
@@ -376,6 +568,11 @@ export function TerminalNode(props: TerminalNodeProps) {
   }
 
   function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
+    if (onContextMenu) {
+      onContextMenu(event)
+      return
+    }
+
     if (!sessionId) {
       return
     }
@@ -399,6 +596,12 @@ export function TerminalNode(props: TerminalNodeProps) {
     width: canvasRect.width,
     height: canvasRect.height,
     '--node-scale': `${scale}`,
+  } as CSSProperties
+
+  const lastAgentMessageLineCount = Math.max(1, lastAgentMessage.split('\n').length)
+  const shouldScrollLastAgentMessage = lastAgentMessageLineCount > AI_AGENT_PROMPT_SCROLL_LINE_THRESHOLD || lastAgentMessage.length > AI_AGENT_PROMPT_SCROLL_CHAR_THRESHOLD
+  const lastAgentMessageStyle = {
+    '--agent-message-scroll-duration': `${Math.max(8, Math.min(28, lastAgentMessageLineCount * 3 + Math.ceil(lastAgentMessage.length / 45)))}s`,
   } as CSSProperties
 
   return (
@@ -435,6 +638,19 @@ export function TerminalNode(props: TerminalNodeProps) {
         {!sessionId && <div className="terminal-node__overlay">Starting terminal...</div>}
         {sessionId && exitCode !== null && (
           <div className="terminal-node__overlay">Terminal exited with code {exitCode}</div>
+        )}
+        {isAiAgentSession && lastAgentMessage && (
+          <div className="terminal-node__agent-message" title={lastAgentMessage}>
+            <span className="terminal-node__agent-message-label">Last prompt</span>
+            <div className="terminal-node__agent-message-viewport">
+              <div
+                className={shouldScrollLastAgentMessage ? 'terminal-node__agent-message-text terminal-node__agent-message-text--scrolling' : 'terminal-node__agent-message-text'}
+                style={lastAgentMessageStyle}
+              >
+                {lastAgentMessage}
+              </div>
+            </div>
+          </div>
         )}
         <div className="terminal-node__terminal" data-ready={isReady} ref={hostRef} />
       </div>

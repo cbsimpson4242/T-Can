@@ -20,6 +20,7 @@ interface DaemonState {
 interface PendingRequest {
   resolve(value: unknown): void
   reject(error: Error): void
+  timer?: NodeJS.Timeout
 }
 
 interface TerminalDaemonClientOptions {
@@ -93,18 +94,18 @@ export class TerminalDaemonClient {
   }
 
   async close(sessionId: string): Promise<void> {
-    await this.request('close', { sessionId })
+    await this.request('close', { sessionId }, 1500)
   }
 
   async closeAll(): Promise<void> {
-    await this.request('closeAll')
+    await this.request('closeAll', undefined, 1500)
   }
 
   async shutdownIfIdle(): Promise<void> {
     await this.request('shutdownIfIdle')
   }
 
-  private async request<T>(type: string, payload?: unknown): Promise<T> {
+  private async request<T>(type: string, payload?: unknown, timeoutMs = 10_000): Promise<T> {
     await this.ensureConnected()
     if (!this.socket || !this.state) {
       throw new Error('Terminal daemon is unavailable')
@@ -113,7 +114,17 @@ export class TerminalDaemonClient {
     const id = crypto.randomUUID()
     const message = { id, token: this.state.token, type, payload }
     return new Promise<T>((resolve, reject) => {
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject })
+      const pending: PendingRequest = {
+        resolve: (value) => resolve(value as T),
+        reject,
+      }
+
+      pending.timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error(`Terminal daemon request timed out: ${type}`))
+      }, timeoutMs)
+
+      this.pending.set(id, pending)
       this.socket?.write(`${JSON.stringify(message)}\n`)
     })
   }
@@ -207,6 +218,9 @@ export class TerminalDaemonClient {
         this.socket = null
       }
       for (const pending of this.pending.values()) {
+        if (pending.timer) {
+          clearTimeout(pending.timer)
+        }
         pending.reject(new Error('Terminal daemon disconnected'))
       }
       this.pending.clear()
@@ -241,6 +255,9 @@ export class TerminalDaemonClient {
     }
 
     this.pending.delete(message.id)
+    if (pending.timer) {
+      clearTimeout(pending.timer)
+    }
     if (message.ok) {
       pending.resolve(message.result)
     } else {
