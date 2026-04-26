@@ -1,9 +1,7 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type PointerEventHandler, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
 import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
-import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
-import { TerminalNode } from './components/TerminalNode'
 import {
   createCanvasRect,
   createEditorNode,
@@ -19,6 +17,9 @@ import {
 import { createAnimationFrameThrottle } from './lib/motion'
 
 type ActiveNode = CanvasNode
+
+const LazyEditorNode = lazy(async () => ({ default: (await import('./components/EditorNode')).EditorNode }))
+const LazyTerminalNode = lazy(async () => ({ default: (await import('./components/TerminalNode')).TerminalNode }))
 
 interface SelectionBox {
   x: number
@@ -50,6 +51,50 @@ const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const PROBLEM_PATTERN = /(?<path>(?:[A-Za-z]:)?[^\s:()]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?::(?<column>\d+))?[):]?\s*(?<message>.*)$/
 const SELECTION_DRAG_THRESHOLD = 4
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
+
+interface LazyNodeShellProps {
+  canvasRect: { left: number; top: number; width: number; height: number }
+  kind: 'editor' | 'terminal'
+  onSelect?: PointerEventHandler<HTMLElement>
+  scale: number
+  selected: boolean
+  subtitle: string
+  title: string
+}
+
+function LazyNodeShell({ canvasRect, kind, onSelect, scale, selected, subtitle, title }: LazyNodeShellProps) {
+  const baseClassName = kind === 'editor' ? 'editor-node' : 'terminal-node'
+  const headerClassName = kind === 'editor' ? 'editor-node__header' : 'terminal-node__header'
+  const titleBlockClassName = kind === 'editor' ? 'editor-node__titleblock' : 'terminal-node__titleblock'
+  const lightClassName = kind === 'editor' ? 'editor-node__light' : 'terminal-node__light'
+  const selectedClassName = selected ? `${baseClassName}--selected` : ''
+
+  return (
+    <article
+      className={`${baseClassName} ${selectedClassName} node-loading-shell`.trim()}
+      onPointerDownCapture={onSelect}
+      style={{
+        transform: `translate(${canvasRect.left}px, ${canvasRect.top}px)`,
+        width: canvasRect.width,
+        height: canvasRect.height,
+        '--node-scale': `${scale}`,
+      } as CSSProperties}
+    >
+      <header className={headerClassName}>
+        <div className={`${baseClassName}__lights`} aria-hidden="true">
+          <span className={`${lightClassName} ${lightClassName}--red`} />
+          <span className={`${lightClassName} ${lightClassName}--amber`} />
+          <span className={`${lightClassName} ${lightClassName}--green`} />
+        </div>
+        <div className={titleBlockClassName}>
+          <strong>{title.toUpperCase()}</strong>
+          <span>{subtitle}</span>
+        </div>
+      </header>
+      <div className="node-loading-shell__body">Loading {kind}…</div>
+    </article>
+  )
+}
 
 function getWorkspaceName(workspacePath: string): string {
   if (workspacePath.startsWith('ssh://')) {
@@ -1787,6 +1832,12 @@ function App() {
             <div className="canvas__world">
               {nodes.map((node) => {
                 const canvasRect = getNodeCanvasRect(node, viewport)
+                const nodeCanvasStyle = {
+                  left: canvasRect.left,
+                  top: canvasRect.top,
+                  width: canvasRect.right - canvasRect.left,
+                  height: canvasRect.bottom - canvasRect.top,
+                }
 
                 if (node.type === 'editor') {
                   if (!activeWorkspaceId) {
@@ -1794,30 +1845,39 @@ function App() {
                   }
 
                   return (
-                    <EditorNode
+                    <Suspense
+                      fallback={(
+                        <LazyNodeShell
+                          canvasRect={nodeCanvasStyle}
+                          kind="editor"
+                          onSelect={(event) => handleNodeSelect(node.id, event)}
+                          scale={viewport.scale}
+                          selected={selectedNodeIdSet.has(node.id)}
+                          subtitle="Preparing Monaco editor"
+                          title={node.title}
+                        />
+                      )}
                       key={node.id}
-                      canvasRect={{
-                        left: canvasRect.left,
-                        top: canvasRect.top,
-                        width: canvasRect.right - canvasRect.left,
-                        height: canvasRect.bottom - canvasRect.top,
-                      }}
-                      node={node}
-                      autoSave={autoSave}
-                      onClose={() => void removeNode(node.id)}
-                      onDirtyChange={handleEditorDirtyChange}
-                      onMoveStart={(event) => beginNodeMove(node.id, event)}
-                      onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
-                      onSelect={(event) => handleNodeSelect(node.id, event)}
-                      onSplit={handleSplitEditor}
-                      onTabsChange={handleEditorTabsChange}
-                      externalRefreshSignal={externalRefreshSignal}
-                      saveAllSignal={saveAllSignal}
-                      saveSignal={saveSignal}
-                      scale={viewport.scale}
-                      selected={selectedNodeIdSet.has(node.id)}
-                      workspaceId={activeWorkspaceId}
-                    />
+                    >
+                      <LazyEditorNode
+                        canvasRect={nodeCanvasStyle}
+                        node={node}
+                        autoSave={autoSave}
+                        onClose={() => void removeNode(node.id)}
+                        onDirtyChange={handleEditorDirtyChange}
+                        onMoveStart={(event) => beginNodeMove(node.id, event)}
+                        onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
+                        onSelect={(event) => handleNodeSelect(node.id, event)}
+                        onSplit={handleSplitEditor}
+                        onTabsChange={handleEditorTabsChange}
+                        externalRefreshSignal={externalRefreshSignal}
+                        saveAllSignal={saveAllSignal}
+                        saveSignal={saveSignal}
+                        scale={viewport.scale}
+                        selected={selectedNodeIdSet.has(node.id)}
+                        workspaceId={activeWorkspaceId}
+                      />
+                    </Suspense>
                   )
                 }
 
@@ -1862,28 +1922,37 @@ function App() {
                 }
 
                 return (
-                  <TerminalNode
+                  <Suspense
+                    fallback={(
+                      <LazyNodeShell
+                        canvasRect={nodeCanvasStyle}
+                        kind="terminal"
+                        onSelect={(event) => handleNodeSelect(node.id, event)}
+                        scale={viewport.scale}
+                        selected={selectedNodeIdSet.has(node.id)}
+                        subtitle={node.shell ?? 'Terminal session'}
+                        title={node.title}
+                      />
+                    )}
                     key={node.id}
-                    canvasRect={{
-                      left: canvasRect.left,
-                      top: canvasRect.top,
-                      width: canvasRect.right - canvasRect.left,
-                      height: canvasRect.bottom - canvasRect.top,
-                    }}
-                    node={node}
-                    onClose={() => void removeTerminalSelection(node.id)}
-                    onContextMenu={selectedNodeIdSet.has(node.id) && selectedDuplicableNodeCount > 1 ? handleSelectedTerminalContextMenu : undefined}
-                    onMoveStart={(event) => beginNodeMove(node.id, event)}
-                    onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
-                    onSelect={(event) => handleNodeSelect(node.id, event)}
-                    onSshPasswordCaptured={handleSshPasswordCaptured}
-                    scale={viewport.scale}
-                    selected={selectedNodeIdSet.has(node.id)}
-                    sessionId={node.sessionId}
-                    shell={node.shell}
-                    sshPassword={node.sshTarget ? sshPasswords[node.sshTarget] : undefined}
-                    workspacePath={workspacePath}
-                  />
+                  >
+                    <LazyTerminalNode
+                      canvasRect={nodeCanvasStyle}
+                      node={node}
+                      onClose={() => void removeTerminalSelection(node.id)}
+                      onContextMenu={selectedNodeIdSet.has(node.id) && selectedDuplicableNodeCount > 1 ? handleSelectedTerminalContextMenu : undefined}
+                      onMoveStart={(event) => beginNodeMove(node.id, event)}
+                      onResizeStart={(event, direction) => beginNodeResize(node.id, event, direction)}
+                      onSelect={(event) => handleNodeSelect(node.id, event)}
+                      onSshPasswordCaptured={handleSshPasswordCaptured}
+                      scale={viewport.scale}
+                      selected={selectedNodeIdSet.has(node.id)}
+                      sessionId={node.sessionId}
+                      shell={node.shell}
+                      sshPassword={node.sshTarget ? sshPasswords[node.sshTarget] : undefined}
+                      workspacePath={workspacePath}
+                    />
+                  </Suspense>
                 )
               })}
             </div>
