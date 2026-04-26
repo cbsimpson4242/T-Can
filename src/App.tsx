@@ -5,7 +5,6 @@ import { EditorNode } from './components/EditorNode'
 import { FileExplorer } from './components/FileExplorer'
 import { TerminalNode } from './components/TerminalNode'
 import {
-  clampNodeSize,
   createCanvasRect,
   createEditorNode,
   createSourceControlNode,
@@ -13,8 +12,11 @@ import {
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
   rectanglesIntersect,
+  resizeNodesByIds,
   snapCanvasZoomViewport,
+  translateNodesByIds,
 } from './lib/layout'
+import { createAnimationFrameThrottle } from './lib/motion'
 
 type ActiveNode = CanvasNode
 
@@ -1081,15 +1083,16 @@ function App() {
     const start = { x: event.clientX, y: event.clientY }
     const initialViewport = viewport
 
-    const move = (pointerEvent: PointerEvent) => {
+    const move = createAnimationFrameThrottle((pointerEvent: PointerEvent) => {
       setViewport({
         ...initialViewport,
         x: initialViewport.x + pointerEvent.clientX - start.x,
         y: initialViewport.y + pointerEvent.clientY - start.y,
       })
-    }
+    })
 
     const stop = () => {
+      move.flush()
       setIsCanvasPanning(false)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
@@ -1129,7 +1132,7 @@ function App() {
     const initialSelection = selectedNodeIds
     const initialViewport = viewport
 
-    const move = (pointerEvent: PointerEvent) => {
+    const move = createAnimationFrameThrottle((pointerEvent: PointerEvent) => {
       const currentPoint = getCanvasPoint(pointerEvent.clientX, pointerEvent.clientY)
       if (!currentPoint) {
         return
@@ -1142,9 +1145,10 @@ function App() {
         width: rect.right - rect.left,
         height: rect.bottom - rect.top,
       })
-    }
+    })
 
     const stop = (event?: Event) => {
+      move.flush()
       const pointerEvent = event instanceof PointerEvent ? event : undefined
       const endPoint = pointerEvent ? getCanvasPoint(pointerEvent.clientX, pointerEvent.clientY) ?? startPoint : startPoint
       const rect = createCanvasRect(startPoint, endPoint)
@@ -1234,7 +1238,7 @@ function App() {
       let isCreatingDuplicates = false
       let isDisposed = false
 
-      const moveDuplicateNodes = (pointerEvent: PointerEvent) => {
+      const moveDuplicateNodes = createAnimationFrameThrottle((pointerEvent: PointerEvent) => {
         latestX = pointerEvent.clientX
         latestY = pointerEvent.clientY
 
@@ -1273,23 +1277,14 @@ function App() {
         const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
         const duplicateNodeIdSet = new Set(duplicateNodeIds)
 
-        setNodes((current) =>
-          current.map((node) =>
-            duplicateNodeIdSet.has(node.id)
-              ? {
-                  ...node,
-                  x: node.x + deltaX,
-                  y: node.y + deltaY,
-                }
-              : node,
-          ),
-        )
+        setNodes((current) => translateNodesByIds(current, duplicateNodeIdSet, { x: deltaX, y: deltaY }))
 
         previousX = pointerEvent.clientX
         previousY = pointerEvent.clientY
-      }
+      })
 
       const stopDuplicateDrag = () => {
+        moveDuplicateNodes.flush()
         isDisposed = true
         window.removeEventListener('pointermove', moveDuplicateNodes)
         window.removeEventListener('pointerup', stopDuplicateDrag)
@@ -1308,27 +1303,18 @@ function App() {
     let previousX = event.clientX
     let previousY = event.clientY
 
-    const move = (pointerEvent: PointerEvent) => {
+    const move = createAnimationFrameThrottle((pointerEvent: PointerEvent) => {
       const deltaX = (pointerEvent.clientX - previousX) / viewport.scale
       const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
 
-      setNodes((current) =>
-        current.map((node) =>
-          actionNodeIdSet.has(node.id)
-            ? {
-                ...node,
-                x: node.x + deltaX,
-                y: node.y + deltaY,
-              }
-            : node,
-        ),
-      )
+      setNodes((current) => translateNodesByIds(current, actionNodeIdSet, { x: deltaX, y: deltaY }))
 
       previousX = pointerEvent.clientX
       previousY = pointerEvent.clientY
-    }
+    })
 
     const stop = () => {
+      move.flush()
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
       window.removeEventListener('pointercancel', stop)
@@ -1353,38 +1339,18 @@ function App() {
     let previousX = event.clientX
     let previousY = event.clientY
 
-    const move = (pointerEvent: PointerEvent) => {
+    const move = createAnimationFrameThrottle((pointerEvent: PointerEvent) => {
       const deltaX = (pointerEvent.clientX - previousX) / viewport.scale
       const deltaY = (pointerEvent.clientY - previousY) / viewport.scale
 
-      setNodes((current) =>
-        current.map((node) => {
-          if (!actionNodeIdSet.has(node.id)) {
-            return node
-          }
-
-          const widthDelta = direction.includes('e') ? deltaX : direction.includes('w') ? -deltaX : 0
-          const heightDelta = direction.includes('s') ? deltaY : direction.includes('n') ? -deltaY : 0
-          const size = clampNodeSize({
-            width: node.width + widthDelta,
-            height: node.height + heightDelta,
-          })
-
-          return {
-            ...node,
-            x: direction.includes('w') ? node.x + node.width - size.width : node.x,
-            y: direction.includes('n') ? node.y + node.height - size.height : node.y,
-            width: size.width,
-            height: size.height,
-          }
-        }),
-      )
+      setNodes((current) => resizeNodesByIds(current, actionNodeIdSet, direction, { x: deltaX, y: deltaY }))
 
       previousX = pointerEvent.clientX
       previousY = pointerEvent.clientY
-    }
+    })
 
     const stop = () => {
+      move.flush()
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', stop)
       window.removeEventListener('pointercancel', stop)

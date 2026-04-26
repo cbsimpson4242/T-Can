@@ -7,7 +7,9 @@ import {
   getNodeCanvasRect,
   getViewportCenterWorldPoint,
   rectanglesIntersect,
+  resizeNodesByIds,
   snapCanvasZoomViewport,
+  translateNodesByIds,
   zoomViewport,
 } from './layout'
 
@@ -113,5 +115,29 @@ describe('layout helpers', () => {
         { left: 101, top: 50, right: 150, bottom: 120 },
       ),
     ).toBe(false)
+  })
+
+  it('translates only the selected nodes by the given delta', () => {
+    const nodes = [
+      { id: 'node-1', type: 'terminal' as const, title: 'One', x: 10, y: 20, width: 100, height: 80 },
+      { id: 'node-2', type: 'terminal' as const, title: 'Two', x: 40, y: 50, width: 100, height: 80 },
+    ]
+
+    expect(translateNodesByIds(nodes, new Set(['node-2']), { x: 5, y: -10 })).toEqual([
+      { id: 'node-1', type: 'terminal', title: 'One', x: 10, y: 20, width: 100, height: 80 },
+      { id: 'node-2', type: 'terminal', title: 'Two', x: 45, y: 40, width: 100, height: 80 },
+    ])
+  })
+
+  it('resizes only the selected nodes from the requested direction', () => {
+    const nodes = [
+      { id: 'node-1', type: 'terminal' as const, title: 'One', x: 10, y: 20, width: 300, height: 200 },
+      { id: 'node-2', type: 'terminal' as const, title: 'Two', x: 50, y: 60, width: 300, height: 200 },
+    ]
+
+    expect(resizeNodesByIds(nodes, new Set(['node-1']), 'nw', { x: 30, y: 40 })).toEqual([
+      { id: 'node-1', type: 'terminal', title: 'One', x: 30, y: 40, width: 280, height: 180 },
+      { id: 'node-2', type: 'terminal', title: 'Two', x: 50, y: 60, width: 300, height: 200 },
+    ])
   })
 })

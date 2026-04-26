@@ -168,6 +168,29 @@ describe('PtyManager', () => {
     ).toBe('C:\\Windows\\System32\\OpenSSH\\ssh.EXE')
   })
 
+  it('tracks only the most recent terminal output up to the snapshot limit', () => {
+    const handle = new FakePtyHandle()
+    const backend: PtyBackend = {
+      spawn: vi.fn(() => handle),
+    }
+    const manager = new PtyManager({
+      backend,
+      defaultShell: '/bin/bash',
+      env: { TEST_ENV: '1' },
+      platform: 'linux',
+    })
+
+    const session = manager.createSession({ cwd: '/tmp/project', cols: 120, rows: 40 })
+    handle.dataListener?.('a'.repeat(199_999))
+    handle.dataListener?.('bcdef')
+
+    const snapshot = manager.getSession(session.sessionId)
+
+    expect(snapshot?.output.length).toBe(200_000)
+    expect(snapshot?.output.startsWith('a')).toBe(true)
+    expect(snapshot?.output.endsWith('bcdef')).toBe(true)
+  })
+
   it('creates, writes to, resizes, and closes PTY sessions', () => {
     const handle = new FakePtyHandle()
     const backend: PtyBackend = {

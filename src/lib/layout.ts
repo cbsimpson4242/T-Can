@@ -1,4 +1,4 @@
-import type { CanvasNode, EditorNode, SourceControlNode, TerminalNode, Viewport } from '../../shared/types'
+import type { CanvasNode, EditorNode, NodeResizeDirection, SourceControlNode, TerminalNode, Viewport } from '../../shared/types'
 
 export interface CanvasRect {
   left: number
@@ -153,4 +153,56 @@ export function getNodeCanvasRect(node: CanvasNode, viewport: Viewport): CanvasR
 
 export function rectanglesIntersect(a: CanvasRect, b: CanvasRect): boolean {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top
+}
+
+export function translateNodesByIds<TNode extends CanvasNode>(
+  nodes: TNode[],
+  selectedNodeIds: ReadonlySet<string>,
+  delta: { x: number; y: number },
+): TNode[] {
+  if (selectedNodeIds.size === 0 || (delta.x === 0 && delta.y === 0)) {
+    return nodes
+  }
+
+  return nodes.map((node) => (
+    selectedNodeIds.has(node.id)
+      ? {
+          ...node,
+          x: node.x + delta.x,
+          y: node.y + delta.y,
+        }
+      : node
+  ))
+}
+
+export function resizeNodesByIds<TNode extends CanvasNode>(
+  nodes: TNode[],
+  selectedNodeIds: ReadonlySet<string>,
+  direction: NodeResizeDirection,
+  delta: { x: number; y: number },
+): TNode[] {
+  if (selectedNodeIds.size === 0 || (delta.x === 0 && delta.y === 0)) {
+    return nodes
+  }
+
+  return nodes.map((node) => {
+    if (!selectedNodeIds.has(node.id)) {
+      return node
+    }
+
+    const widthDelta = direction.includes('e') ? delta.x : direction.includes('w') ? -delta.x : 0
+    const heightDelta = direction.includes('s') ? delta.y : direction.includes('n') ? -delta.y : 0
+    const size = clampNodeSize({
+      width: node.width + widthDelta,
+      height: node.height + heightDelta,
+    })
+
+    return {
+      ...node,
+      x: direction.includes('w') ? node.x + node.width - size.width : node.x,
+      y: direction.includes('n') ? node.y + node.height - size.height : node.y,
+      width: size.width,
+      height: size.height,
+    }
+  })
 }

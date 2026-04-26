@@ -36,11 +36,16 @@ export interface PtyBackend {
   ): PtyHandle
 }
 
+interface SessionOutputBuffer {
+  chunks: string[]
+  totalLength: number
+}
+
 interface SessionRecord {
   info: TerminalSessionInfo
   handle: PtyHandle
   disposables: Disposable[]
-  output: string
+  output: SessionOutputBuffer
   inputBuffer: string
 }
 
@@ -222,6 +227,43 @@ function updateAgentCommandFromInput(session: SessionRecord, data: string): void
     if (character >= ' ') {
       session.inputBuffer += character
     }
+  }
+}
+
+function appendSessionOutput(buffer: SessionOutputBuffer, data: string): void {
+  if (!data) {
+    return
+  }
+
+  buffer.chunks.push(data)
+  buffer.totalLength += data.length
+
+  while (buffer.totalLength > MAX_SESSION_OUTPUT_CHARS && buffer.chunks.length > 0) {
+    const overflow = buffer.totalLength - MAX_SESSION_OUTPUT_CHARS
+    const firstChunk = buffer.chunks[0]
+    if (firstChunk.length <= overflow) {
+      buffer.chunks.shift()
+      buffer.totalLength -= firstChunk.length
+      continue
+    }
+
+    buffer.chunks[0] = firstChunk.slice(overflow)
+    buffer.totalLength -= overflow
+  }
+}
+
+function readSessionOutput(buffer: SessionOutputBuffer): string {
+  if (buffer.chunks.length === 0) {
+    return ''
+  }
+
+  return buffer.chunks.join('')
+}
+
+function createSessionOutputBuffer(): SessionOutputBuffer {
+  return {
+    chunks: [],
+    totalLength: 0,
   }
 }
 
@@ -511,7 +553,7 @@ export class PtyManager {
       handle.onData((data) => {
         const session = this.sessions.get(sessionId)
         if (session) {
-          session.output = `${session.output}${data}`.slice(-MAX_SESSION_OUTPUT_CHARS)
+          appendSessionOutput(session.output, data)
         }
         for (const listener of this.outputListeners) {
           listener({ sessionId, data })
@@ -525,7 +567,7 @@ export class PtyManager {
       }),
     ]
 
-    this.sessions.set(sessionId, { info, handle, disposables, output: '', inputBuffer: '' })
+    this.sessions.set(sessionId, { info, handle, disposables, output: createSessionOutputBuffer(), inputBuffer: '' })
     return info
   }
 
@@ -537,7 +579,7 @@ export class PtyManager {
 
     return {
       info: session.info,
-      output: session.output,
+      output: readSessionOutput(session.output),
     }
   }
 
