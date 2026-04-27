@@ -410,7 +410,6 @@ export function TerminalNode(props: TerminalNodeProps) {
 
     host.addEventListener('pointerdown', handleHostPointerFocus)
     host.addEventListener('pointerenter', handleHostPointerFocus)
-    host.addEventListener('pointermove', handleHostPointerFocus)
     helperTextarea?.addEventListener('paste', handlePaste, true)
     helperTextarea?.addEventListener('focus', handleFocus)
     helperTextarea?.addEventListener('blur', handleBlur)
@@ -519,7 +518,6 @@ export function TerminalNode(props: TerminalNodeProps) {
       pasteCleanup()
       host.removeEventListener('pointerdown', handleHostPointerFocus)
       host.removeEventListener('pointerenter', handleHostPointerFocus)
-      host.removeEventListener('pointermove', handleHostPointerFocus)
       helperTextarea?.removeEventListener('paste', handlePaste, true)
       helperTextarea?.removeEventListener('focus', handleFocus)
       helperTextarea?.removeEventListener('blur', handleBlur)
@@ -619,7 +617,6 @@ export function TerminalNode(props: TerminalNodeProps) {
       className={className}
       onContextMenu={handleContextMenu}
       onPointerEnter={handleTerminalHover}
-      onPointerMove={handleTerminalHover}
       onPointerLeave={handleTerminalLeave}
       onPointerDownCapture={onSelect}
       style={style}
