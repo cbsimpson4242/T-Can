@@ -1607,7 +1607,7 @@ button.topbar__tab:hover:not(:disabled),
   color: var(--cyan);
 }
 
-.terminal-node--active {
+.terminal-node--focused:hover {
   border-color: var(--cyan);
   box-shadow:
     0 0 0 1px rgba(97, 216, 255, 0.3),

@@ -127,7 +127,6 @@ export function TerminalNode(props: TerminalNodeProps) {
   const isAiAgentSessionRef = useRef(false)
   const [isReady, setIsReady] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
-  const [isHovered, setIsHovered] = useState(false)
   const [isAiAgentSession, setIsAiAgentSession] = useState(false)
   const [lastAgentMessage, setLastAgentMessage] = useState('')
   const exitCode = useTerminalExit(sessionId)
@@ -541,7 +540,6 @@ export function TerminalNode(props: TerminalNodeProps) {
       isAiAgentSessionRef.current = false
       setIsReady(false)
       setIsFocused(false)
-      setIsHovered(false)
       setIsAiAgentSession(false)
       setLastAgentMessage('')
       terminal.dispose()
@@ -586,12 +584,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   }, [canvasRect.height, canvasRect.width, scale, sendTerminalResize, sessionId])
 
   function handleTerminalHover() {
-    setIsHovered(true)
     focusTerminal()
-  }
-
-  function handleTerminalLeave() {
-    setIsHovered(false)
   }
 
   function handleContextMenu(event: ReactMouseEvent<HTMLElement>) {
@@ -613,7 +606,7 @@ export function TerminalNode(props: TerminalNodeProps) {
   const className = [
     'terminal-node',
     selected ? 'terminal-node--selected' : null,
-    isFocused && isHovered ? 'terminal-node--active' : null,
+    isFocused ? 'terminal-node--focused' : null,
   ]
     .filter(Boolean)
     .join(' ')
@@ -636,7 +629,6 @@ export function TerminalNode(props: TerminalNodeProps) {
       className={className}
       onContextMenu={handleContextMenu}
       onPointerEnter={handleTerminalHover}
-      onPointerLeave={handleTerminalLeave}
       onPointerDownCapture={onSelect}
       style={style}
     >
