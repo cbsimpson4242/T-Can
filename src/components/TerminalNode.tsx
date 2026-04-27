@@ -292,17 +292,19 @@ export function TerminalNode(props: TerminalNodeProps) {
 
       let text = ''
 
-      if (canReadClipboardForTerminal()) {
-        text = await window.tcan.readClipboardForTerminal({ sessionId, mode })
-
-        if (!text && allowClipboardFallback && mode !== 'clipboard') {
-          text = await window.tcan.readClipboardForTerminal({ sessionId, mode: 'clipboard' })
-        }
-      } else if (typeof window.tcan?.readClipboardText === 'function') {
+      if (typeof window.tcan?.readClipboardText === 'function') {
         text = await window.tcan.readClipboardText(mode)
 
         if (!text && allowClipboardFallback && mode !== 'clipboard') {
           text = await window.tcan.readClipboardText('clipboard')
+        }
+      }
+
+      if (!text && canReadClipboardForTerminal()) {
+        text = await window.tcan.readClipboardForTerminal({ sessionId, mode })
+
+        if (!text && allowClipboardFallback && mode !== 'clipboard') {
+          text = await window.tcan.readClipboardForTerminal({ sessionId, mode: 'clipboard' })
         }
       }
 
