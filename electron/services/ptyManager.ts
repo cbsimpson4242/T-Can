@@ -583,6 +583,10 @@ export class PtyManager {
     }
   }
 
+  getSessionInfo(sessionId: string): TerminalSessionInfo | null {
+    return this.sessions.get(sessionId)?.info ?? null
+  }
+
   listSessions(): TerminalSessionInfo[] {
     return [...this.sessions.values()].map((session) => session.info)
   }

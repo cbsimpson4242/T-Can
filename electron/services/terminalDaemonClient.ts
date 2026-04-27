@@ -81,6 +81,10 @@ export class TerminalDaemonClient {
     return this.request<TerminalSessionSnapshot | null>('get', { sessionId })
   }
 
+  async getSessionInfo(sessionId: string): Promise<TerminalSessionInfo | null> {
+    return this.request<TerminalSessionInfo | null>('getInfo', { sessionId })
+  }
+
   async listSessions(): Promise<TerminalSessionInfo[]> {
     return this.request<TerminalSessionInfo[]>('list')
   }

@@ -49,6 +49,10 @@ function handleRequest(message: RequestMessage): unknown {
       const sessionId = (message.payload as { sessionId?: string } | undefined)?.sessionId
       return sessionId ? manager.getSession(sessionId) : null
     }
+    case 'getInfo': {
+      const sessionId = (message.payload as { sessionId?: string } | undefined)?.sessionId
+      return sessionId ? manager.getSessionInfo(sessionId) : null
+    }
     case 'list':
       return manager.listSessions()
     case 'write': {

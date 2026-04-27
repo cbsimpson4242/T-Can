@@ -40,6 +40,7 @@ export interface TCanApi {
   saveLayout(workspaceId: string, layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>
+  getTerminalSessionInfo(sessionId: string): Promise<TerminalSessionInfo | null>
   listTerminals(): Promise<TerminalSessionInfo[]>
   writeTerminal(sessionId: string, data: string): Promise<void>
   resizeTerminal(sessionId: string, cols: number, rows: number): Promise<void>

@@ -177,6 +177,7 @@ export const IPC_CHANNELS = {
   listWorkspaceTasks: 'workspace:list-tasks',
   createTerminal: 'terminal:create',
   getTerminalSession: 'terminal:get-session',
+  getTerminalSessionInfo: 'terminal:get-session-info',
   listTerminals: 'terminal:list',
   writeTerminal: 'terminal:write',
   resizeTerminal: 'terminal:resize',

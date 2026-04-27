@@ -915,6 +915,11 @@ function registerIpcHandlers(): void {
     return terminalDaemon.getSession(request.sessionId)
   })
 
+  ipcMain.handle(IPC_CHANNELS.getTerminalSessionInfo, async (_event, candidate) => {
+    const request = terminalSessionSchema.parse(candidate)
+    return terminalDaemon.getSessionInfo(request.sessionId)
+  })
+
   ipcMain.handle(IPC_CHANNELS.listTerminals, async () => terminalDaemon.listSessions())
 
   ipcMain.handle(IPC_CHANNELS.writeTerminal, async (_event, candidate) => {

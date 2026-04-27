@@ -58,6 +58,9 @@ const api: TCanApi = {
   getTerminalSession(sessionId) {
     return ipcRenderer.invoke(IPC_CHANNELS.getTerminalSession, { sessionId })
   },
+  getTerminalSessionInfo(sessionId) {
+    return ipcRenderer.invoke(IPC_CHANNELS.getTerminalSessionInfo, { sessionId })
+  },
   listTerminals() {
     return ipcRenderer.invoke(IPC_CHANNELS.listTerminals)
   },

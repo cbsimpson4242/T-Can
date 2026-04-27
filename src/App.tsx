@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type PointerEventHandler, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
+import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionInfo, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
 import { FileExplorer } from './components/FileExplorer'
 import {
   createCanvasRect,
@@ -166,9 +166,9 @@ function getApi() {
   return window.tcan
 }
 
-function isSshSessionForTarget(session: TerminalSessionSnapshot, target: string): boolean {
-  const command = session.info.command?.split(/[\\/]/).pop()?.toLowerCase()
-  return (command === 'ssh' || command === 'ssh.exe') && session.info.args?.[0] === target
+function isSshSessionForTarget(session: Pick<TerminalSessionInfo, 'command' | 'args'>, target: string): boolean {
+  const command = session.command?.split(/[\\/]/).pop()?.toLowerCase()
+  return (command === 'ssh' || command === 'ssh.exe') && session.args?.[0] === target
 }
 
 function hasSelectionModifier(event: Pick<PointerEvent, 'ctrlKey' | 'metaKey' | 'shiftKey'>): boolean {
@@ -314,10 +314,10 @@ function App() {
           const sshTarget = workspace.kind === 'ssh' ? node.sshTarget ?? workspace.sshTarget : undefined
 
           if (node.sessionId) {
-            const existingSession = await api.getTerminalSession(node.sessionId)
+            const existingSession = await api.getTerminalSessionInfo(node.sessionId)
             if (existingSession) {
               if (!sshTarget || isSshSessionForTarget(existingSession, sshTarget)) {
-                return { ...node, shell: existingSession.info.shell, cwd: existingSession.info.cwd }
+                return { ...node, shell: existingSession.shell, cwd: existingSession.cwd }
               }
 
               await api.closeTerminal(node.sessionId)
@@ -952,8 +952,8 @@ function App() {
     const duplicatedNodes: TerminalNodeModel[] = []
 
     for (const node of sourceNodes) {
-      const sourceSession = node.sessionId ? await getApi().getTerminalSession(node.sessionId) : null
-      const agentCommandLine = sourceSession?.info.agentCommandLine
+      const sourceSession = node.sessionId ? await getApi().getTerminalSessionInfo(node.sessionId) : null
+      const agentCommandLine = sourceSession?.agentCommandLine
       const sshTarget = node.sshTarget ?? (activeWorkspace?.kind === 'ssh' ? activeWorkspace.sshTarget : undefined)
       const session = sshTarget
         ? await getApi().createTerminal({ cwd: null, command: 'ssh', args: [sshTarget] })
