@@ -6,6 +6,8 @@ import type { EditorNode as EditorNodeModel, EditorTab, NodeResizeDirection, Wor
 
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 const AUTOSAVE_DELAY_MS = 900
+// Monaco language defaults are global for the whole renderer process, so configure them once.
+let hasConfiguredMonacoLanguageIntelligence = false
 
 interface ProjectedNodeRect {
   left: number
@@ -34,6 +36,10 @@ interface EditorNodeProps {
 }
 
 function configureMonacoLanguageIntelligence(monaco: Parameters<BeforeMount>[0]) {
+  if (hasConfiguredMonacoLanguageIntelligence) {
+    return
+  }
+
   const compilerOptions = {
     target: monaco.languages.typescript.ScriptTarget.ESNext,
     module: monaco.languages.typescript.ModuleKind.ESNext,
@@ -50,8 +56,9 @@ function configureMonacoLanguageIntelligence(monaco: Parameters<BeforeMount>[0])
   monaco.languages.typescript.javascriptDefaults.setCompilerOptions(compilerOptions)
   monaco.languages.typescript.typescriptDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false })
   monaco.languages.typescript.javascriptDefaults.setDiagnosticsOptions({ noSemanticValidation: false, noSyntaxValidation: false })
-  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(true)
-  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(true)
+  monaco.languages.typescript.typescriptDefaults.setEagerModelSync(false)
+  monaco.languages.typescript.javascriptDefaults.setEagerModelSync(false)
+  hasConfiguredMonacoLanguageIntelligence = true
 }
 
 function getTitle(filePath: string): string {
