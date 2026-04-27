@@ -111,10 +111,11 @@ export function EditorNode(props: EditorNodeProps) {
     () => normalizeTabs(node),
     [node.filePath, node.language, node.tabs, node.title],
   )
-  const activeFilePath = node.activeFilePath && tabs.some((tab) => tab.filePath === node.activeFilePath)
+  const tabByPath = useMemo(() => new Map(tabs.map((tab) => [tab.filePath, tab])), [tabs])
+  const activeFilePath = node.activeFilePath && tabByPath.has(node.activeFilePath)
     ? node.activeFilePath
     : tabs[0]?.filePath ?? node.filePath
-  const activeTab = tabs.find((tab) => tab.filePath === activeFilePath) ?? tabs[0]
+  const activeTab = tabByPath.get(activeFilePath) ?? tabs[0]
   const content = contents[activeFilePath] ?? ''
   const activeSavedContent = savedContents[activeFilePath] ?? ''
   const dirtyPaths = useMemo(
