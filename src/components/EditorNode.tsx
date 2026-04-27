@@ -118,7 +118,8 @@ export function EditorNode(props: EditorNodeProps) {
     () => tabs.map((tab) => tab.filePath).filter((filePath) => (contents[filePath] ?? '') !== (savedContents[filePath] ?? '')),
     [contents, savedContents, tabs],
   )
-  const isDirty = dirtyPaths.includes(activeFilePath)
+  const dirtyPathSet = useMemo(() => new Set(dirtyPaths), [dirtyPaths])
+  const isDirty = dirtyPathSet.has(activeFilePath)
   const isLoading = loadingPaths.has(activeFilePath)
   const isSaving = savingPaths.has(activeFilePath)
   const language = activeTab?.language ?? guessLanguageFromPath(activeFilePath)
@@ -350,7 +351,7 @@ export function EditorNode(props: EditorNodeProps) {
   }
 
   function closeTab(filePath: string) {
-    if (dirtyPaths.includes(filePath) && !window.confirm(`Close ${filePath} without saving changes?`)) {
+    if (dirtyPathSet.has(filePath) && !window.confirm(`Close ${filePath} without saving changes?`)) {
       return
     }
 
@@ -444,7 +445,7 @@ export function EditorNode(props: EditorNodeProps) {
       </header>
       <div className="editor-node__tabs" onPointerDown={(event) => event.stopPropagation()}>
         {tabs.map((tab, index) => {
-          const tabDirty = dirtyPaths.includes(tab.filePath)
+          const tabDirty = dirtyPathSet.has(tab.filePath)
           return (
             <div className={tab.filePath === activeFilePath ? 'editor-node__tab editor-node__tab--active' : 'editor-node__tab'} key={tab.filePath} title={tab.filePath}>
               <button className="editor-node__tab-main" onClick={() => updateTabs(tabs, tab.filePath)} type="button">
