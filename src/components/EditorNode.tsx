@@ -107,7 +107,10 @@ export function EditorNode(props: EditorNodeProps) {
   const [showOutline, setShowOutline] = useState(false)
   const [markerCounts, setMarkerCounts] = useState({ errors: 0, warnings: 0 })
   const [isEditorReady, setIsEditorReady] = useState(false)
-  const tabs = useMemo(() => normalizeTabs(node), [node])
+  const tabs = useMemo(
+    () => normalizeTabs(node),
+    [node.filePath, node.language, node.tabs, node.title],
+  )
   const activeFilePath = node.activeFilePath && tabs.some((tab) => tab.filePath === node.activeFilePath)
     ? node.activeFilePath
     : tabs[0]?.filePath ?? node.filePath
