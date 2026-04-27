@@ -15,6 +15,7 @@ import {
   translateNodesByIds,
 } from './lib/layout'
 import { createAnimationFrameThrottle } from './lib/motion'
+import { getApi } from './lib/tcanApi'
 
 type ActiveNode = CanvasNode
 
@@ -156,14 +157,6 @@ function parseProblemLine(data: string, sessionId?: string): ProblemMatch[] {
 
 function getActiveWorkspace(state: Pick<PersistedAppState, 'activeWorkspaceId' | 'workspaces'>): PersistedWorkspace | null {
   return state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) ?? null
-}
-
-function getApi() {
-  if (!window.tcan) {
-    throw new Error('T-CAN preload API is unavailable. Rebuild the Electron bundles and restart the app.')
-  }
-
-  return window.tcan
 }
 
 function isSshSessionForTarget(session: Pick<TerminalSessionInfo, 'command' | 'args'>, target: string): boolean {
