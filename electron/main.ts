@@ -35,6 +35,7 @@ let persistedState: PersistedAppState
 let terminalDaemon: TerminalDaemonClient
 const workspaceWatchers = new Map<string, ReturnType<typeof fs.watch>>()
 const workspaceWatchDebounceTimers = new Map<string, NodeJS.Timeout>()
+const workspaceWatchPendingTaskRefresh = new Set<string>()
 
 function isPointInsideBounds(point: Electron.Point, bounds: Electron.Rectangle): boolean {
   return (
@@ -497,6 +498,10 @@ function parseGitBlame(output: string): GitBlameLine[] {
 }
 
 function scheduleWorkspaceChanged(workspaceId: string, changedPath?: string): void {
+  if (shouldRefreshWorkspaceTasksForPath(changedPath)) {
+    workspaceWatchPendingTaskRefresh.add(workspaceId)
+  }
+
   const existingTimer = workspaceWatchDebounceTimers.get(workspaceId)
   if (existingTimer) {
     clearTimeout(existingTimer)
@@ -504,12 +509,27 @@ function scheduleWorkspaceChanged(workspaceId: string, changedPath?: string): vo
 
   workspaceWatchDebounceTimers.set(workspaceId, setTimeout(() => {
     workspaceWatchDebounceTimers.delete(workspaceId)
-    mainWindow?.webContents.send(IPC_CHANNELS.workspaceChanged, { workspaceId, path: changedPath })
+    const refreshTasks = workspaceWatchPendingTaskRefresh.has(workspaceId)
+    workspaceWatchPendingTaskRefresh.delete(workspaceId)
+    mainWindow?.webContents.send(IPC_CHANNELS.workspaceChanged, { workspaceId, path: changedPath, refreshTasks })
   }, 250))
 }
 
 function shouldIgnoreWatchedPath(changedPath: string): boolean {
   return changedPath.split(/[\\/]/).some((part) => IGNORED_FILE_TREE_NAMES.has(part))
+}
+
+function shouldRefreshWorkspaceTasksForPath(changedPath?: string): boolean {
+  if (!changedPath) {
+    return true
+  }
+
+  const normalizedPath = changedPath.replace(/\\/g, '/')
+  if (normalizedPath.includes('/')) {
+    return false
+  }
+
+  return normalizedPath === 'package.json' || normalizedPath === 'pnpm-lock.yaml' || normalizedPath === 'yarn.lock'
 }
 
 function refreshWorkspaceWatchers(): void {
@@ -560,6 +580,7 @@ function closeWorkspaceWatchers(): void {
     clearTimeout(timer)
   }
   workspaceWatchDebounceTimers.clear()
+  workspaceWatchPendingTaskRefresh.clear()
 }
 
 function persistLayout(nextState: PersistedAppState): PersistedAppState {

@@ -159,6 +159,7 @@ export interface TerminalPasteEvent {
 export interface WorkspaceChangedEvent {
   workspaceId: string
   path?: string
+  refreshTasks: boolean
 }
 
 export interface WorkspaceTaskScript {

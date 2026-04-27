@@ -613,20 +613,26 @@ function App() {
     }
 
     let timeoutId: number | null = null
+    let pendingRefreshTasks = false
     const hasSourceControlNode = nodes.some((node) => node.type === 'source-control')
 
     const unsubscribe = window.tcan.onWorkspaceChanged((event) => {
       if (event.workspaceId !== activeWorkspaceId) {
         return
       }
+      pendingRefreshTasks ||= event.refreshTasks
       if (timeoutId !== null) {
         window.clearTimeout(timeoutId)
       }
       timeoutId = window.setTimeout(() => {
         timeoutId = null
+        const shouldRefreshTasks = pendingRefreshTasks
+        pendingRefreshTasks = false
         setExternalRefreshSignal((current) => current + 1)
         void refreshFileTree(true)
-        void refreshWorkspaceTasks()
+        if (shouldRefreshTasks) {
+          void refreshWorkspaceTasks()
+        }
         if (hasSourceControlNode) {
           void refreshGitPanel()
         }
