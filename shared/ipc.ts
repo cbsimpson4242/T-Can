@@ -75,6 +75,10 @@ export const workspaceRequestSchema = z.object({
   workspaceId: z.string(),
 })
 
+export const saveLayoutRequestSchema = workspaceRequestSchema.extend({
+  layout: persistedLayoutSchema,
+})
+
 export const sshWorkspaceRequestSchema = z.object({
   target: z.string().trim().min(1).max(255),
 })

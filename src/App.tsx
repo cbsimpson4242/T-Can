@@ -50,6 +50,7 @@ interface GitPanelState {
 const DEFAULT_VIEWPORT: Viewport = { x: 0, y: 0, scale: 1 }
 const PROBLEM_PATTERN = /(?<path>(?:[A-Za-z]:)?[^\s:()]+\.[A-Za-z0-9]+)[:(](?<line>\d+)(?::(?<column>\d+))?[):]?\s*(?<message>.*)$/
 const SELECTION_DRAG_THRESHOLD = 4
+const LAYOUT_SAVE_DEBOUNCE_MS = 180
 const RESIZE_DIRECTIONS: NodeResizeDirection[] = ['n', 'ne', 'e', 'se', 's', 'sw', 'w', 'nw']
 
 interface LazyNodeShellProps {
@@ -660,7 +661,14 @@ function App() {
     setWorkspaces((current) =>
       current.map((workspace) => (workspace.id === activeWorkspaceId ? { ...workspace, layout } : workspace)),
     )
-    void getApi().saveLayout(layout)
+
+    const timeoutId = window.setTimeout(() => {
+      void getApi().saveLayout(activeWorkspaceId, layout)
+    }, LAYOUT_SAVE_DEBOUNCE_MS)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
   }, [activeWorkspaceId, isBootstrapping, layout])
 
   function confirmDiscardUnsavedChanges(action: string): boolean {
@@ -675,7 +683,7 @@ function App() {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(layout)
+        await getApi().saveLayout(activeWorkspaceId, layout)
       }
       const nextState = await getApi().openWorkspace()
       setWorkspaces(nextState.workspaces)
@@ -725,7 +733,7 @@ function App() {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(layout)
+        await getApi().saveLayout(activeWorkspaceId, layout)
       }
       const nextState = await getApi().openSshWorkspace(target)
       if (password) {
@@ -755,7 +763,7 @@ function App() {
 
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(layout)
+        await getApi().saveLayout(activeWorkspaceId, layout)
       }
       const nextState = await getApi().switchWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
@@ -797,7 +805,7 @@ function App() {
 
       setClosingWorkspaceId(workspaceId)
       if (activeWorkspaceId) {
-        await getApi().saveLayout(layout)
+        await getApi().saveLayout(activeWorkspaceId, layout)
       }
       const nextState = await getApi().closeWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)

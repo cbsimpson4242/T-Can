@@ -37,7 +37,7 @@ export interface TCanApi {
   copyWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
   revealWorkspacePath(workspaceId: string, relativePath: string): Promise<void>
   listWorkspaceTasks(workspaceId: string): Promise<WorkspaceTaskScript[]>
-  saveLayout(layout: PersistedLayout): Promise<PersistedAppState>
+  saveLayout(workspaceId: string, layout: PersistedLayout): Promise<PersistedAppState>
   createTerminal(request: CreateTerminalRequest): Promise<TerminalSessionInfo>
   getTerminalSession(sessionId: string): Promise<TerminalSessionSnapshot | null>
   listTerminals(): Promise<TerminalSessionInfo[]>

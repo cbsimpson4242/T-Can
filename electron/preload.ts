@@ -49,8 +49,8 @@ const api: TCanApi = {
   listWorkspaceTasks(workspaceId) {
     return ipcRenderer.invoke(IPC_CHANNELS.listWorkspaceTasks, { workspaceId })
   },
-  saveLayout(layout) {
-    return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, layout)
+  saveLayout(workspaceId, layout) {
+    return ipcRenderer.invoke(IPC_CHANNELS.saveLayout, { workspaceId, layout })
   },
   createTerminal(request) {
     return ipcRenderer.invoke(IPC_CHANNELS.createTerminal, request)
