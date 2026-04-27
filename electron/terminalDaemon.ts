@@ -2,14 +2,8 @@ import fs from 'node:fs'
 import net from 'node:net'
 import path from 'node:path'
 import { createNodePtyBackend, PtyManager } from './services/ptyManager'
+import { buildTerminalDaemonErrorResponse, type TerminalDaemonRequestMessage as RequestMessage } from './terminalDaemonProtocol'
 import type { CreateTerminalRequest } from '../shared/types'
-
-type RequestMessage = {
-  id: string
-  token: string
-  type: string
-  payload?: unknown
-}
 
 const statePath = process.argv[process.argv.indexOf('--state') + 1]
 const token = process.argv[process.argv.indexOf('--token') + 1]
@@ -110,8 +104,14 @@ const server = net.createServer((socket) => {
           const result = handleRequest(message)
           send(socket, { id: message.id, ok: true, result })
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error)
-          send(socket, { id: 'unknown', ok: false, error: message })
+          const parsedMessage = (() => {
+            try {
+              return JSON.parse(line) as Partial<RequestMessage>
+            } catch {
+              return undefined
+            }
+          })()
+          send(socket, buildTerminalDaemonErrorResponse(parsedMessage?.id ? { id: parsedMessage.id } : undefined, error))
         }
       }
 
