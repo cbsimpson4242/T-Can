@@ -101,12 +101,14 @@ export function EditorNode(props: EditorNodeProps) {
   const [wordWrap, setWordWrap] = useState(true)
   const [showOutline, setShowOutline] = useState(false)
   const [markerCounts, setMarkerCounts] = useState({ errors: 0, warnings: 0 })
+  const [isEditorReady, setIsEditorReady] = useState(false)
   const tabs = useMemo(() => normalizeTabs(node), [node])
   const activeFilePath = node.activeFilePath && tabs.some((tab) => tab.filePath === node.activeFilePath)
     ? node.activeFilePath
     : tabs[0]?.filePath ?? node.filePath
   const activeTab = tabs.find((tab) => tab.filePath === activeFilePath) ?? tabs[0]
   const content = contents[activeFilePath] ?? ''
+  const activeSavedContent = savedContents[activeFilePath] ?? ''
   const dirtyPaths = useMemo(
     () => tabs.map((tab) => tab.filePath).filter((filePath) => (contents[filePath] ?? '') !== (savedContents[filePath] ?? '')),
     [contents, savedContents, tabs],
@@ -123,7 +125,7 @@ export function EditorNode(props: EditorNodeProps) {
 
   useEffect(() => {
     let cancelled = false
-    if (!editorRef.current || !activeFilePath || !window.tcan?.getGitFileDiff) {
+    if (!isEditorReady || !editorRef.current || !activeFilePath || !window.tcan?.getGitFileDiff) {
       return
     }
 
@@ -151,7 +153,7 @@ export function EditorNode(props: EditorNodeProps) {
     return () => {
       cancelled = true
     }
-  }, [activeFilePath, savedContents, workspaceId])
+  }, [activeFilePath, activeSavedContent, isEditorReady, workspaceId])
 
   useEffect(() => {
     let cancelled = false
@@ -371,6 +373,7 @@ export function EditorNode(props: EditorNodeProps) {
 
   const handleEditorMount: OnMount = (editorInstance) => {
     editorRef.current = editorInstance
+    setIsEditorReady(true)
   }
 
   const className = ['editor-node', selected ? 'editor-node--selected' : null].filter(Boolean).join(' ')
