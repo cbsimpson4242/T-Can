@@ -71,6 +71,10 @@ function normalizeTabs(node: EditorNodeModel): EditorTab[] {
   return tabs.map((tab) => ({ ...tab, title: tab.title || getTitle(tab.filePath) }))
 }
 
+function arePathListsEqual(left: readonly string[], right: readonly string[]): boolean {
+  return left.length === right.length && left.every((path, index) => path === right[index])
+}
+
 export function EditorNode(props: EditorNodeProps) {
   const {
     node,
@@ -92,6 +96,7 @@ export function EditorNode(props: EditorNodeProps) {
   } = props
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null)
   const gitDecorationsRef = useRef<editor.IEditorDecorationsCollection | null>(null)
+  const lastReportedDirtyStateRef = useRef<{ nodeId: string; dirtyPaths: readonly string[] } | null>(null)
   const [contents, setContents] = useState<Record<string, string>>({})
   const [savedContents, setSavedContents] = useState<Record<string, string>>({})
   const [loadingPaths, setLoadingPaths] = useState<Set<string>>(() => new Set())
@@ -120,6 +125,11 @@ export function EditorNode(props: EditorNodeProps) {
   const activeSymbols = useMemo(() => extractFileSymbols(activeFilePath, content), [activeFilePath, content])
 
   useEffect(() => {
+    const lastReportedDirtyState = lastReportedDirtyStateRef.current
+    if (lastReportedDirtyState?.nodeId === node.id && arePathListsEqual(lastReportedDirtyState.dirtyPaths, dirtyPaths)) {
+      return
+    }
+    lastReportedDirtyStateRef.current = { nodeId: node.id, dirtyPaths }
     onDirtyChange(node.id, dirtyPaths)
   }, [dirtyPaths, node.id, onDirtyChange])
 
