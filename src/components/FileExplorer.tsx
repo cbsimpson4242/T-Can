@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from 'react'
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type WheelEvent } from 'react'
 import type { WorkspaceFileEntry } from '../../shared/types'
 
 interface FileExplorerProps {
@@ -68,7 +68,7 @@ function findEntry(entries: WorkspaceFileEntry[], relativePath: string): Workspa
   return null
 }
 
-function FileEntryView(props: {
+const FileEntryView = memo(function FileEntryView(props: {
   entry: WorkspaceFileEntry
   depth: number
   expandedPaths: Set<string>
@@ -80,11 +80,12 @@ function FileEntryView(props: {
   const { entry, depth, expandedPaths, selectedPath, onOpenFile, onToggleDirectory, onSelectPath } = props
   const isDirectory = entry.type === 'directory'
   const isExpanded = isDirectory && expandedPaths.has(entry.relativePath)
+  const isSelected = selectedPath === entry.relativePath
   const fileIcon = isDirectory ? null : getFileIcon(entry.name)
   const className = [
     'file-explorer__entry',
     isDirectory ? 'file-explorer__entry--directory' : null,
-    selectedPath === entry.relativePath ? 'file-explorer__entry--selected' : null,
+    isSelected ? 'file-explorer__entry--selected' : null,
   ]
     .filter(Boolean)
     .join(' ')
@@ -129,7 +130,7 @@ function FileEntryView(props: {
       )}
     </li>
   )
-}
+})
 
 export function FileExplorer(props: FileExplorerProps) {
   const {
@@ -147,10 +148,16 @@ export function FileExplorer(props: FileExplorerProps) {
     onRevealPath,
   } = props
   const bodyRef = useRef<HTMLDivElement | null>(null)
+  const onOpenFileRef = useRef(onOpenFile)
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set())
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [rootExpanded, setRootExpanded] = useState(true)
   const displayWorkspaceName = useMemo(() => workspaceName?.split(/[\\/]/).filter(Boolean).pop() ?? workspaceName, [workspaceName])
+  const canMutateSelectedPath = useMemo(() => Boolean(workspaceName && !loading && !remote && selectedPath), [loading, remote, selectedPath, workspaceName])
+
+  useLayoutEffect(() => {
+    onOpenFileRef.current = onOpenFile
+  }, [onOpenFile])
 
   useEffect(() => {
     const body = bodyRef.current
@@ -166,12 +173,12 @@ export function FileExplorer(props: FileExplorerProps) {
     return () => body.removeEventListener('wheel', stopNativeWheelPropagation, { capture: true })
   }, [])
 
-  function handleOpenFile(relativePath: string) {
+  const handleOpenFile = useCallback((relativePath: string) => {
     setSelectedPath(relativePath)
-    onOpenFile(relativePath)
-  }
+    onOpenFileRef.current(relativePath)
+  }, [])
 
-  function getParentForCreate(): string {
+  const getParentForCreate = useCallback((): string => {
     if (!selectedPath) {
       return ''
     }
@@ -180,18 +187,14 @@ export function FileExplorer(props: FileExplorerProps) {
       return selectedPath
     }
     return selectedPath.split('/').slice(0, -1).join('/')
-  }
+  }, [entries, selectedPath])
 
-  function canMutateSelectedPath(): boolean {
-    return Boolean(workspaceName && !loading && !remote && selectedPath)
-  }
-
-  function collapseAll() {
+  const collapseAll = useCallback(() => {
     setExpandedPaths(new Set())
     setRootExpanded(true)
-  }
+  }, [])
 
-  function toggleDirectory(relativePath: string) {
+  const toggleDirectory = useCallback((relativePath: string) => {
     setExpandedPaths((current) => {
       const next = new Set(current)
       if (next.has(relativePath)) {
@@ -201,15 +204,15 @@ export function FileExplorer(props: FileExplorerProps) {
       }
       return next
     })
-  }
+  }, [])
 
-  function stopExplorerWheelPropagation(event: WheelEvent<HTMLElement>) {
+  const stopExplorerWheelPropagation = useCallback((event: WheelEvent<HTMLElement>) => {
     event.stopPropagation()
-  }
+  }, [])
 
-  function stopExplorerPointerPropagation(event: PointerEvent<HTMLElement>) {
+  const stopExplorerPointerPropagation = useCallback((event: PointerEvent<HTMLElement>) => {
     event.stopPropagation()
-  }
+  }, [])
 
   return (
     <aside
@@ -225,11 +228,11 @@ export function FileExplorer(props: FileExplorerProps) {
         <div className="file-explorer__actions" aria-label="Explorer actions">
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={() => onCreatePath(getParentForCreate(), 'file')} title="New file" type="button">＋</button>
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={() => onCreatePath(getParentForCreate(), 'directory')} title="New folder" type="button">▣</button>
-          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onRenamePath(selectedPath)} title="Rename selected" type="button">✎</button>
-          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onDeletePath(selectedPath)} title="Delete selected" type="button">⌫</button>
-          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onDuplicatePath(selectedPath)} title="Duplicate selected" type="button">⧉</button>
-          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onCopyPath(selectedPath)} title="Copy full path" type="button">⎘</button>
-          <button className="file-explorer__action" disabled={!canMutateSelectedPath()} onClick={() => selectedPath && onRevealPath(selectedPath)} title="Reveal in system explorer" type="button">↗</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath} onClick={() => selectedPath && onRenamePath(selectedPath)} title="Rename selected" type="button">✎</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath} onClick={() => selectedPath && onDeletePath(selectedPath)} title="Delete selected" type="button">⌫</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath} onClick={() => selectedPath && onDuplicatePath(selectedPath)} title="Duplicate selected" type="button">⧉</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath} onClick={() => selectedPath && onCopyPath(selectedPath)} title="Copy full path" type="button">⎘</button>
+          <button className="file-explorer__action" disabled={!canMutateSelectedPath} onClick={() => selectedPath && onRevealPath(selectedPath)} title="Reveal in system explorer" type="button">↗</button>
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={onRefresh} title="Refresh explorer" type="button">↻</button>
           <button className="file-explorer__action" disabled={!workspaceName || loading || remote} onClick={collapseAll} title="Collapse folders" type="button">⇤</button>
         </div>
