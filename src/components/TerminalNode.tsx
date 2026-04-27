@@ -351,7 +351,6 @@ export function TerminalNode(props: TerminalNodeProps) {
     const helperTextarea = host.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
     if (helperTextarea) {
       helperTextarea.classList.add('terminal-node__helper-textarea')
-      helperTextarea.setAttribute('aria-label', `${node.title} terminal input`)
       helperTextarea.setAttribute('autocomplete', 'off')
       helperTextarea.setAttribute('autocorrect', 'off')
       helperTextarea.setAttribute('autocapitalize', 'off')
@@ -541,7 +540,21 @@ export function TerminalNode(props: TerminalNodeProps) {
       setLastAgentMessage('')
       terminal.dispose()
     }
-  }, [copySelectionToClipboard, focusTerminal, markAiAgentSession, node.sshTarget, node.title, pasteFromClipboard, pasteText, processTerminalInput, sendTerminalResize, sessionId])
+  }, [copySelectionToClipboard, focusTerminal, markAiAgentSession, node.sshTarget, pasteFromClipboard, pasteText, processTerminalInput, sendTerminalResize, sessionId])
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host) {
+      return
+    }
+
+    const helperTextarea = host.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null
+    if (!helperTextarea) {
+      return
+    }
+
+    helperTextarea.setAttribute('aria-label', `${node.title} terminal input`)
+  }, [node.title, sessionId])
 
   useLayoutEffect(() => {
     if (!sessionId || !fitAddonRef.current || !terminalRef.current) {
