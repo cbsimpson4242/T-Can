@@ -254,32 +254,34 @@ export function TerminalNode(props: TerminalNodeProps) {
       }
 
       const cleanedData = stripBracketedPasteMarkers(data)
+      let nextInputBuffer = inputBufferRef.current
       for (const character of cleanedData) {
         if (character === '\r') {
-          handleSubmittedInput(inputBufferRef.current)
-          inputBufferRef.current = ''
+          handleSubmittedInput(nextInputBuffer)
+          nextInputBuffer = ''
           continue
         }
 
         if (character === '\n') {
-          inputBufferRef.current = `${inputBufferRef.current}\n`
+          nextInputBuffer += '\n'
           continue
         }
 
         if (character === '\u0003' || character === '\u001b' || character === '\u0015') {
-          inputBufferRef.current = ''
+          nextInputBuffer = ''
           continue
         }
 
         if (character === '\u007f' || character === '\b') {
-          inputBufferRef.current = inputBufferRef.current.slice(0, -1)
+          nextInputBuffer = nextInputBuffer.slice(0, -1)
           continue
         }
 
         if (character >= ' ' || character === '\t') {
-          inputBufferRef.current = `${inputBufferRef.current}${character}`
+          nextInputBuffer += character
         }
       }
+      inputBufferRef.current = nextInputBuffer
     },
     [handleSubmittedInput],
   )
@@ -445,11 +447,12 @@ export function TerminalNode(props: TerminalNodeProps) {
         return
       }
 
+      let nextCapturedPassword = capturedSshPasswordRef.current
       for (const character of data) {
         if (character === '\r' || character === '\n') {
-          const capturedPassword = capturedSshPasswordRef.current
+          const capturedPassword = nextCapturedPassword
           isCapturingSshPasswordRef.current = false
-          capturedSshPasswordRef.current = ''
+          nextCapturedPassword = ''
           if (capturedPassword) {
             onSshPasswordCapturedRef.current?.(node.sshTarget, capturedPassword)
           }
@@ -458,19 +461,20 @@ export function TerminalNode(props: TerminalNodeProps) {
 
         if (character === '\u0003' || character === '\u001b') {
           isCapturingSshPasswordRef.current = false
-          capturedSshPasswordRef.current = ''
+          nextCapturedPassword = ''
           continue
         }
 
         if (character === '\b' || character === '\u007f') {
-          capturedSshPasswordRef.current = capturedSshPasswordRef.current.slice(0, -1)
+          nextCapturedPassword = nextCapturedPassword.slice(0, -1)
           continue
         }
 
         if (character >= ' ') {
-          capturedSshPasswordRef.current = `${capturedSshPasswordRef.current}${character}`
+          nextCapturedPassword += character
         }
       }
+      capturedSshPasswordRef.current = nextCapturedPassword
     }
 
     const outputCleanup = subscribeToTerminalOutput(sessionId, (data) => {
