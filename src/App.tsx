@@ -682,10 +682,6 @@ function App() {
       return
     }
 
-    setWorkspaces((current) =>
-      current.map((workspace) => (workspace.id === activeWorkspaceId ? { ...workspace, layout } : workspace)),
-    )
-
     const timeoutId = window.setTimeout(() => {
       void getApi().saveLayout(activeWorkspaceId, layout)
     }, LAYOUT_SAVE_DEBOUNCE_MS)
