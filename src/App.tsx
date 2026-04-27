@@ -600,6 +600,8 @@ function App() {
     }
   }
 
+  const hasSourceControlNode = useMemo(() => nodes.some((node) => node.type === 'source-control'), [nodes])
+
   useEffect(() => {
     queueMicrotask(() => void refreshFileTree())
     queueMicrotask(() => void refreshWorkspaceTasks())
@@ -614,7 +616,6 @@ function App() {
 
     let timeoutId: number | null = null
     let pendingRefreshTasks = false
-    const hasSourceControlNode = nodes.some((node) => node.type === 'source-control')
 
     const unsubscribe = window.tcan.onWorkspaceChanged((event) => {
       if (event.workspaceId !== activeWorkspaceId) {
@@ -647,7 +648,7 @@ function App() {
     }
     // Refresh helpers intentionally read the latest active workspace state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeWorkspaceId, activeWorkspace?.kind, nodes])
+  }, [activeWorkspaceId, activeWorkspace?.kind, hasSourceControlNode])
 
   useEffect(() => {
     if (!window.tcan?.onTerminalOutput) {
