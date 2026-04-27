@@ -220,6 +220,8 @@ function App() {
   const [workspaceTasks, setWorkspaceTasks] = useState<WorkspaceTaskScript[]>([])
   const [problems, setProblems] = useState<ProblemMatch[]>([])
   const [isTerminalManagerOpen, setIsTerminalManagerOpen] = useState(false)
+  const problemsRef = useRef<ProblemMatch[]>([])
+  const isTerminalManagerOpenRef = useRef(false)
   const [gitPanel, setGitPanel] = useState<GitPanelState>({ status: [], branches: null, selectedPath: null, selectedDiffStaged: false, diff: null, diffMode: 'inline', commitMessage: '', loading: false, error: null })
   const [isSshDialogOpen, setIsSshDialogOpen] = useState(false)
   const [sshHostInput, setSshHostInput] = useState('example.com')
@@ -651,6 +653,13 @@ function App() {
   }, [activeWorkspaceId, activeWorkspace?.kind, hasSourceControlNode])
 
   useEffect(() => {
+    isTerminalManagerOpenRef.current = isTerminalManagerOpen
+    if (isTerminalManagerOpen) {
+      setProblems(problemsRef.current)
+    }
+  }, [isTerminalManagerOpen])
+
+  useEffect(() => {
     if (!window.tcan?.onTerminalOutput) {
       return
     }
@@ -660,7 +669,11 @@ function App() {
       if (nextProblems.length === 0) {
         return
       }
-      setProblems((current) => [...nextProblems, ...current].slice(0, 300))
+      const mergedProblems = [...nextProblems, ...problemsRef.current].slice(0, 300)
+      problemsRef.current = mergedProblems
+      if (isTerminalManagerOpenRef.current) {
+        setProblems(mergedProblems)
+      }
     })
   }, [])
 
