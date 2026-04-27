@@ -435,7 +435,9 @@ function App() {
       return
     }
 
-    setIsLoadingFiles(true)
+    if (!silent) {
+      setIsLoadingFiles(true)
+    }
     try {
       const entries = await getApi().listWorkspaceFiles(activeWorkspaceId)
       setFileEntries(entries)
@@ -447,7 +449,9 @@ function App() {
         window.alert(`Unable to load workspace files.\n\n${message}`)
       }
     } finally {
-      setIsLoadingFiles(false)
+      if (!silent) {
+        setIsLoadingFiles(false)
+      }
     }
   }
 
