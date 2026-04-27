@@ -471,10 +471,20 @@ export function EditorNode(props: EditorNodeProps) {
           onChange={(value) => setContents((current) => ({ ...current, [activeFilePath]: value ?? '' }))}
           onMount={handleEditorMount}
           onValidate={(markers) => {
-            setMarkerCounts({
-              errors: markers.filter((marker) => marker.severity >= 8).length,
-              warnings: markers.filter((marker) => marker.severity === 4).length,
-            })
+            let errors = 0
+            let warnings = 0
+            for (const marker of markers) {
+              if (marker.severity >= 8) {
+                errors += 1
+              } else if (marker.severity === 4) {
+                warnings += 1
+              }
+            }
+            setMarkerCounts((current) => (
+              current.errors === errors && current.warnings === warnings
+                ? current
+                : { errors, warnings }
+            ))
           }}
           options={{
             automaticLayout: true,
