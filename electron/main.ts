@@ -511,7 +511,7 @@ function scheduleWorkspaceChanged(workspaceId: string, changedPath?: string): vo
     workspaceWatchDebounceTimers.delete(workspaceId)
     const refreshTasks = workspaceWatchPendingTaskRefresh.has(workspaceId)
     workspaceWatchPendingTaskRefresh.delete(workspaceId)
-    mainWindow?.webContents.send(IPC_CHANNELS.workspaceChanged, { workspaceId, path: changedPath, refreshTasks })
+    mainWindow?.webContents.send(IPC_CHANNELS.workspaceChanged, { workspaceId, refreshTasks })
   }, 250))
 }
 
