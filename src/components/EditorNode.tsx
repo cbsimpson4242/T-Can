@@ -123,6 +123,34 @@ export function EditorNode(props: EditorNodeProps) {
   const isSaving = savingPaths.has(activeFilePath)
   const language = activeTab?.language ?? guessLanguageFromPath(activeFilePath)
   const activeSymbols = useMemo(() => extractFileSymbols(activeFilePath, content), [activeFilePath, content])
+  const editorOptions = useMemo(() => ({
+    automaticLayout: true,
+    fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
+    fontSize: Math.max(10, 13 * scale),
+    glyphMargin: true,
+    lineNumbers: 'on' as const,
+    minimap: {
+      enabled: showMinimap,
+      side: 'right' as const,
+      showSlider: 'always' as const,
+      renderCharacters: true,
+      maxColumn: 120,
+      scale: 1,
+    },
+    overviewRulerLanes: 3,
+    renderLineHighlight: 'all' as const,
+    rulers: [100, 120],
+    scrollbar: {
+      horizontal: 'visible' as const,
+      vertical: 'visible' as const,
+      useShadows: true,
+      horizontalScrollbarSize: 12,
+      verticalScrollbarSize: 12,
+    },
+    scrollBeyondLastLine: false,
+    stickyScroll: { enabled: true },
+    wordWrap: wordWrap ? 'on' as const : 'off' as const,
+  }), [scale, showMinimap, wordWrap])
 
   useEffect(() => {
     const lastReportedDirtyState = lastReportedDirtyStateRef.current
@@ -486,34 +514,7 @@ export function EditorNode(props: EditorNodeProps) {
                 : { errors, warnings }
             ))
           }}
-          options={{
-            automaticLayout: true,
-            fontFamily: 'Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace',
-            fontSize: Math.max(10, 13 * scale),
-            glyphMargin: true,
-            lineNumbers: 'on',
-            minimap: {
-              enabled: showMinimap,
-              side: 'right',
-              showSlider: 'always',
-              renderCharacters: true,
-              maxColumn: 120,
-              scale: 1,
-            },
-            overviewRulerLanes: 3,
-            renderLineHighlight: 'all',
-            rulers: [100, 120],
-            scrollbar: {
-              horizontal: 'visible',
-              vertical: 'visible',
-              useShadows: true,
-              horizontalScrollbarSize: 12,
-              verticalScrollbarSize: 12,
-            },
-            scrollBeyondLastLine: false,
-            stickyScroll: { enabled: true },
-            wordWrap: wordWrap ? 'on' : 'off',
-          }}
+          options={editorOptions}
           path={activeFilePath}
           theme="vs-dark"
           value={content}
