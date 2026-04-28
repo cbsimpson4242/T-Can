@@ -105,6 +105,34 @@ function getWorkspaceName(workspacePath: string): string {
   return workspacePath.split(/[\\/]/).filter(Boolean).pop() ?? workspacePath
 }
 
+function getCloseWorkspaceConfirmationMessage(options: {
+  workspaceName: string
+  terminalCount: number
+  dirtyEditorPathCount: number
+}): string {
+  const { workspaceName, terminalCount, dirtyEditorPathCount } = options
+  const details: string[] = []
+
+  if (dirtyEditorPathCount > 0) {
+    details.push(`with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}`)
+  }
+
+  if (terminalCount > 0) {
+    details.push(`terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}`)
+  }
+
+  if (details.length === 0) {
+    return `Close workspace "${workspaceName}"?`
+  }
+
+  const detailText = details.length === 1
+    ? details[0]
+    : `${details.slice(0, -1).join(', ')} and ${details.at(-1)}`
+
+  const discardNotice = dirtyEditorPathCount > 0 ? ' Unsaved edits will be discarded.' : ''
+  return `Close workspace "${workspaceName}" ${detailText}?${discardNotice}`
+}
+
 function getFileTitle(filePath: string): string {
   return filePath.split(/[\\/]/).pop() || filePath
 }
@@ -815,20 +843,18 @@ function App() {
       const terminalCount = workspaceId === activeWorkspaceId
         ? terminalNodeCount
         : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
-      const message = terminalCount
-        ? `Close workspace "${getWorkspaceName(workspace.path)}" and terminate ${terminalCount} terminal${terminalCount === 1 ? '' : 's'}?`
-        : `Close workspace "${getWorkspaceName(workspace.path)}"?`
-
-      if (workspaceId === activeWorkspaceId && dirtyEditorPathCount > 0 && !window.confirm(`Close workspace with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}?`)) {
-        return
-      }
+      const message = getCloseWorkspaceConfirmationMessage({
+        workspaceName: getWorkspaceName(workspace.path),
+        terminalCount,
+        dirtyEditorPathCount: workspaceId === activeWorkspaceId ? dirtyEditorPathCount : 0,
+      })
 
       if (!window.confirm(message)) {
         return
       }
 
       setClosingWorkspaceId(workspaceId)
-      if (activeWorkspaceId) {
+      if (workspaceId === activeWorkspaceId) {
         await getApi().saveLayout(activeWorkspaceId, layout)
       }
       const nextState = await getApi().closeWorkspace(workspaceId)
