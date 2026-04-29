@@ -1814,6 +1814,79 @@ button.topbar__tab:hover:not(:disabled),
   padding: calc(0.35rem * var(--node-scale));
 }
 
+.terminal-node__summary {
+  position: absolute;
+  top: calc(0.42rem * var(--node-scale));
+  left: calc(0.55rem * var(--node-scale));
+  right: calc(0.55rem * var(--node-scale));
+  z-index: 3;
+  display: grid;
+  gap: calc(0.28rem * var(--node-scale));
+  padding: calc(0.4rem * var(--node-scale)) calc(0.5rem * var(--node-scale));
+  border: 1px solid rgba(88, 242, 161, 0.28);
+  border-radius: calc(6px * var(--node-scale));
+  background: rgba(6, 12, 9, 0.9);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.36), inset 0 0 18px rgba(88, 242, 161, 0.05);
+  pointer-events: none;
+}
+
+.terminal-node__summary-topline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: calc(0.35rem * var(--node-scale));
+}
+
+.terminal-node__summary-project {
+  min-width: 0;
+  color: rgba(237, 242, 239, 0.96);
+  font-size: calc(0.76rem * var(--node-scale));
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.terminal-node__summary-chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(1.1rem * var(--node-scale));
+  padding: 0 calc(0.38rem * var(--node-scale));
+  border: 1px solid rgba(88, 242, 161, 0.24);
+  border-radius: 999px;
+  font-size: calc(0.56rem * var(--node-scale));
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.terminal-node__summary-chip--role {
+  color: var(--cyan);
+  border-color: rgba(0, 241, 253, 0.28);
+  background: rgba(0, 241, 253, 0.08);
+}
+
+.terminal-node__summary-chip--status {
+  color: var(--green-soft);
+  border-color: rgba(88, 242, 161, 0.28);
+  background: rgba(88, 242, 161, 0.08);
+}
+
+.terminal-node__summary-primary {
+  color: rgba(237, 242, 239, 0.88);
+  font-size: calc(0.72rem * var(--node-scale));
+  line-height: calc(0.98rem * var(--node-scale));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.terminal-node__summary-secondary {
+  color: rgba(237, 242, 239, 0.56);
+  font-family: Cascadia Mono, Consolas, SFMono-Regular, Menlo, monospace;
+  font-size: calc(0.58rem * var(--node-scale));
+  line-height: calc(0.88rem * var(--node-scale));
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .terminal-node__agent-message {
   position: absolute;
   top: calc(0.42rem * var(--node-scale));
