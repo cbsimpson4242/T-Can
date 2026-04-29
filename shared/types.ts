@@ -1,5 +1,19 @@
 export type CanvasNodeType = 'terminal' | 'editor' | 'source-control'
 export type NodeResizeDirection = 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'nw'
+export type HermesWorkspaceMode = 'standard' | 'hermes'
+export type HermesAgentRole = 'planner' | 'builder' | 'tester' | 'reviewer' | 'researcher' | 'runner' | 'summarizer'
+export type HermesAgentStatus = 'idle' | 'running' | 'waiting' | 'blocked' | 'done'
+
+export interface HermesAgentSummary {
+  project: string
+  role: HermesAgentRole
+  status: HermesAgentStatus
+  objective?: string
+  lastAction?: string
+  nextStep?: string
+  branch?: string
+  worktreePath?: string
+}
 
 export interface CanvasNodeBase {
   id: string
@@ -18,6 +32,7 @@ export interface TerminalNode extends CanvasNodeBase {
   sshTarget?: string
   cwd?: string
   taskName?: string
+  hermes?: HermesAgentSummary
 }
 
 export interface EditorTab {
@@ -58,6 +73,7 @@ export interface PersistedWorkspace {
   path: string
   kind?: 'local' | 'ssh'
   sshTarget?: string
+  mode?: HermesWorkspaceMode
   layout: PersistedLayout
 }
 
