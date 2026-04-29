@@ -1,5 +1,19 @@
 import { z } from 'zod'
 
+const hermesWorkspaceModeSchema = z.enum(['standard', 'hermes'])
+const hermesAgentRoleSchema = z.enum(['planner', 'builder', 'tester', 'reviewer', 'researcher', 'runner', 'summarizer'])
+const hermesAgentStatusSchema = z.enum(['idle', 'running', 'waiting', 'blocked', 'done'])
+const hermesAgentSummarySchema = z.object({
+  project: z.string(),
+  role: hermesAgentRoleSchema,
+  status: hermesAgentStatusSchema,
+  objective: z.string().optional(),
+  lastAction: z.string().optional(),
+  nextStep: z.string().optional(),
+  branch: z.string().optional(),
+  worktreePath: z.string().optional(),
+})
+
 const canvasNodeBaseSchema = z.object({
   id: z.string(),
   type: z.enum(['terminal', 'editor', 'source-control']).default('terminal'),
@@ -17,6 +31,7 @@ export const terminalNodeSchema = canvasNodeBaseSchema.extend({
   sshTarget: z.string().optional(),
   cwd: z.string().optional(),
   taskName: z.string().optional(),
+  hermes: hermesAgentSummarySchema.optional(),
 })
 
 export const editorTabSchema = z.object({
@@ -56,6 +71,7 @@ export const persistedWorkspaceSchema = z.object({
   path: z.string(),
   kind: z.enum(['local', 'ssh']).optional(),
   sshTarget: z.string().optional(),
+  mode: hermesWorkspaceModeSchema.optional(),
   layout: persistedLayoutSchema,
 })
 
@@ -77,6 +93,7 @@ export const workspaceRequestSchema = z.object({
 
 export const saveLayoutRequestSchema = workspaceRequestSchema.extend({
   layout: persistedLayoutSchema,
+  mode: hermesWorkspaceModeSchema.optional(),
 })
 
 export const sshWorkspaceRequestSchema = z.object({

@@ -1,8 +1,46 @@
-import type { TerminalNode } from '../../shared/types'
+import type { HermesAgentRole, HermesAgentStatus, TerminalNode } from '../../shared/types'
 
 export interface HermesProjectTerminalGroup {
   project: string
   nodes: TerminalNode[]
+}
+
+export interface HermesSidebarTerminalSummary {
+  id: string
+  title: string
+  project: string
+  role: string
+  status: string
+  cwd?: string
+}
+
+export interface HermesTerminalSummary {
+  projectLabel: string
+  role: string
+  status: string
+  objective?: string
+  lastAction?: string
+  branch?: string
+  worktree?: string
+  cwd?: string
+}
+
+const ROLE_LABELS: Record<HermesAgentRole, string> = {
+  planner: 'Planner',
+  builder: 'Builder',
+  tester: 'Tester',
+  reviewer: 'Reviewer',
+  researcher: 'Researcher',
+  runner: 'Runner',
+  summarizer: 'Summarizer',
+}
+
+const STATUS_LABELS: Record<HermesAgentStatus, string> = {
+  idle: 'Idle',
+  running: 'Running',
+  waiting: 'Waiting',
+  blocked: 'Blocked',
+  done: 'Done',
 }
 
 export function isHermesTerminal(node: TerminalNode): boolean {
@@ -44,6 +82,46 @@ export function groupHermesTerminalsByProject(nodes: TerminalNode[], workspacePa
   }
 
   return Array.from(projects, ([project, projectNodes]) => ({ project, nodes: projectNodes }))
+}
+
+export function getHermesRoleLabel(role: HermesAgentRole): string {
+  return ROLE_LABELS[role]
+}
+
+export function getHermesStatusLabel(status: HermesAgentStatus): string {
+  return STATUS_LABELS[status]
+}
+
+export function createHermesTerminalSummary(node: TerminalNode, workspacePath?: string): HermesTerminalSummary | null {
+  if (!node.hermes) {
+    return null
+  }
+
+  return {
+    projectLabel: getHermesProjectLabel(node, workspacePath),
+    role: getHermesRoleLabel(node.hermes.role),
+    status: getHermesStatusLabel(node.hermes.status),
+    objective: node.hermes.objective,
+    lastAction: node.hermes.lastAction,
+    branch: node.hermes.branch,
+    worktree: node.hermes.worktreePath,
+    cwd: node.cwd,
+  }
+}
+
+export function createHermesSidebarTerminalSummary(node: TerminalNode, workspacePath?: string): HermesSidebarTerminalSummary | null {
+  if (!node.hermes) {
+    return null
+  }
+
+  return {
+    id: node.id,
+    title: node.title,
+    project: getHermesProjectLabel(node, workspacePath),
+    role: node.hermes.role,
+    status: node.hermes.status,
+    cwd: node.cwd,
+  }
 }
 
 function getPathBasename(path?: string): string | undefined {

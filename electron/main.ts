@@ -885,7 +885,7 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {
-    const { workspaceId, layout } = saveLayoutRequestSchema.parse(candidate)
+    const { workspaceId, layout, mode } = saveLayoutRequestSchema.parse(candidate)
     if (!persistedState.workspaces.some((workspace) => workspace.id === workspaceId)) {
       return persistedState
     }
@@ -893,7 +893,7 @@ function registerIpcHandlers(): void {
     return persistLayout({
       ...persistedState,
       workspaces: persistedState.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, layout } : workspace,
+        workspace.id === workspaceId ? { ...workspace, layout, ...(mode ? { mode } : {}) } : workspace,
       ),
     })
   })

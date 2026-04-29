@@ -1,7 +1,8 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent as ReactFormEvent, type MouseEvent as ReactMouseEvent, type PointerEvent as ReactPointerEvent, type PointerEventHandler, type WheelEvent as ReactWheelEvent } from 'react'
 import './App.css'
-import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
+import type { CanvasNode, EditorTab, GitBranchSummary, GitFileDiff, GitStatusEntry, HermesWorkspaceMode, NodeResizeDirection, PersistedAppState, PersistedLayout, PersistedWorkspace, ProblemMatch, TerminalNode as TerminalNodeModel, TerminalSessionSnapshot, Viewport, WorkspaceFileEntry, WorkspaceTaskScript } from '../shared/types'
 import { FileExplorer } from './components/FileExplorer'
+import { HermesSidebar } from './components/HermesSidebar'
 import {
   createCanvasRect,
   createEditorNode,
@@ -15,6 +16,7 @@ import {
   translateNodesByIds,
 } from './lib/layout'
 import { createAnimationFrameThrottle } from './lib/motion'
+import { createHermesSidebarTerminalSummary, createHermesTerminalSummary, isHermesTerminal } from './lib/hermesWorkspace'
 
 type ActiveNode = CanvasNode
 
@@ -265,6 +267,18 @@ function App() {
   )
   const terminalNodes = useMemo(() => nodes.filter((node): node is TerminalNodeModel => node.type === 'terminal'), [nodes])
   const terminalNodeCount = terminalNodes.length
+  const isHermesWorkspace = activeWorkspace?.mode === 'hermes'
+  const hermesTerminalNodes = useMemo(
+    () => terminalNodes.filter((node) => isHermesTerminal(node)),
+    [terminalNodes],
+  )
+  const hermesSidebarTerminals = useMemo(
+    () => hermesTerminalNodes.flatMap((node) => {
+      const summary = createHermesSidebarTerminalSummary(node, workspacePath ?? undefined)
+      return summary ? [summary] : []
+    }),
+    [hermesTerminalNodes, workspacePath],
+  )
 
   const layout = useMemo<PersistedLayout>(
     () => ({
@@ -310,6 +324,7 @@ function App() {
           sshTarget: node.sshTarget,
           cwd: node.cwd,
           taskName: node.taskName,
+          hermes: node.hermes,
         }
       }),
       viewport,
@@ -715,7 +730,7 @@ function App() {
     )
 
     const timeoutId = window.setTimeout(() => {
-      void getApi().saveLayout(activeWorkspaceId, layout)
+      void getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
     }, LAYOUT_SAVE_DEBOUNCE_MS)
 
     return () => {
@@ -735,7 +750,7 @@ function App() {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout)
+        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
       }
       const nextState = await getApi().openWorkspace()
       setWorkspaces(nextState.workspaces)
@@ -785,7 +800,7 @@ function App() {
     setIsOpeningWorkspace(true)
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout)
+        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
       }
       const nextState = await getApi().openSshWorkspace(target)
       if (password) {
@@ -815,7 +830,7 @@ function App() {
 
     try {
       if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout)
+        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
       }
       const nextState = await getApi().switchWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
@@ -855,7 +870,7 @@ function App() {
 
       setClosingWorkspaceId(workspaceId)
       if (workspaceId === activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout)
+        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
       }
       const nextState = await getApi().closeWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
@@ -874,7 +889,27 @@ function App() {
     setSshPasswords((current) => current[target] === password ? current : { ...current, [target]: password })
   }, [])
 
-  async function createTerminalAtCenter(options: { title?: string; cwd?: string | null; command?: string; args?: string[]; taskName?: string; offset?: { x: number; y: number } } = {}) {
+  async function handleToggleHermesWorkspaceMode() {
+    if (!activeWorkspaceId || !activeWorkspace) {
+      return
+    }
+
+    const nextMode: HermesWorkspaceMode = activeWorkspace.mode === 'hermes' ? 'standard' : 'hermes'
+    const nextWorkspaces = workspaces.map((workspace) => (
+      workspace.id === activeWorkspaceId ? { ...workspace, mode: nextMode } : workspace
+    ))
+    setWorkspaces(nextWorkspaces)
+
+    try {
+      await getApi().saveLayout(activeWorkspaceId, layout, nextMode)
+    } catch (error) {
+      setWorkspaces(workspaces)
+      const message = error instanceof Error ? error.message : String(error)
+      window.alert(`Unable to update workspace mode.\n\n${message}`)
+    }
+  }
+
+  async function createTerminalAtCenter(options: { title?: string; cwd?: string | null; command?: string; args?: string[]; taskName?: string; offset?: { x: number; y: number }; hermes?: TerminalNodeModel['hermes'] } = {}) {
     const bounds = canvasRef.current?.getBoundingClientRect()
     if (!bounds) {
       return null
@@ -894,6 +929,12 @@ function App() {
       sshTarget,
       cwd: session.cwd,
       taskName: options.taskName,
+      hermes: options.hermes ?? (isHermesWorkspace ? {
+        project: getWorkspaceName(activeWorkspace?.path ?? workspacePath ?? session.cwd),
+        role: 'runner',
+        status: 'idle',
+        lastAction: 'Awaiting assignment',
+      } : undefined),
     }
     setNodes((current) => [...current, terminalNode])
     setSelectedNodeIds([node.id])
@@ -931,7 +972,17 @@ function App() {
 
   async function handleDuplicateTerminal(node: TerminalNodeModel) {
     try {
-      await createTerminalAtCenter({ title: `${node.title} copy`, cwd: node.cwd ?? workspacePath, offset: { x: DUPLICATE_NODE_OFFSET, y: DUPLICATE_NODE_OFFSET } })
+      const isHermesFork = isHermesWorkspace && Boolean(node.hermes)
+      await createTerminalAtCenter({
+        title: isHermesFork ? `${node.title} fork` : `${node.title} copy`,
+        cwd: node.cwd ?? workspacePath,
+        offset: { x: DUPLICATE_NODE_OFFSET, y: DUPLICATE_NODE_OFFSET },
+        hermes: node.hermes ? {
+          ...node.hermes,
+          status: 'idle',
+          lastAction: `Forked from ${node.title}`,
+        } : undefined,
+      })
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
       window.alert(`Unable to duplicate terminal.\n\n${message}`)
@@ -1704,8 +1755,8 @@ function App() {
                     </div>
                     <button onClick={() => setSelectedNodeIds([node.id])} type="button">Focus</button>
                     <button onClick={() => handleRenameTerminal(node)} type="button">Rename</button>
-                    <button onClick={() => void handleDuplicateTerminal(node)} type="button">Duplicate</button>
-                    <button onClick={() => void handleDuplicateTerminal({ ...node, title: `${node.title} split` })} type="button">Split</button>
+                    <button onClick={() => void handleDuplicateTerminal(node)} type="button">{isHermesWorkspace && node.hermes ? 'Fork Agent' : 'Duplicate'}</button>
+                    <button onClick={() => void handleDuplicateTerminal({ ...node, title: `${node.title} split` })} type="button">{isHermesWorkspace && node.hermes ? 'Fork Split' : 'Split'}</button>
                     <button onClick={() => void handleRestartTerminal(node)} type="button">Restart</button>
                     <button className="command-button--danger" onClick={() => void removeNode(node.id)} type="button">Kill</button>
                   </div>
@@ -1815,6 +1866,9 @@ function App() {
           )}
         </nav>
         <div className="topbar__actions">
+          <button className={isHermesWorkspace ? 'command-button command-button--active' : 'command-button'} disabled={!activeWorkspaceId} onClick={() => void handleToggleHermesWorkspaceMode()} type="button">
+            AGENT OS {isHermesWorkspace ? 'ON' : 'OFF'}
+          </button>
           <button className="command-button" disabled={dirtyEditorPathCount === 0} onClick={() => setSaveAllSignal((current) => current + 1)} type="button">
             SAVE ALL
           </button>
@@ -1839,7 +1893,7 @@ function App() {
             onClick={() => void handleCreateTerminal()}
             type="button"
           >
-            {isCreatingTerminal ? 'CREATING...' : 'NEW TERMINAL'}
+            {isCreatingTerminal ? 'CREATING...' : isHermesWorkspace ? 'NEW AGENT' : 'NEW TERMINAL'}
           </button>
           <button
             className="command-button command-button--danger"
@@ -1853,20 +1907,29 @@ function App() {
       </header>
 
       <div className="app-shell__body">
-        <FileExplorer
-          entries={fileEntries}
-          loading={isLoadingFiles}
-          onCopyPath={handleCopyWorkspacePath}
-          onCreatePath={handleCreateWorkspacePath}
-          onDeletePath={handleDeleteWorkspacePath}
-          onDuplicatePath={handleDuplicateWorkspacePath}
-          onOpenFile={handleOpenFileFromExplorer}
-          onRefresh={() => void refreshFileTree()}
-          onRenamePath={handleRenameWorkspacePath}
-          onRevealPath={handleRevealWorkspacePath}
-          remote={activeWorkspace?.kind === 'ssh'}
-          workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
-        />
+        {isHermesWorkspace ? (
+          <HermesSidebar
+            onSelectTerminal={(id) => setSelectedNodeIds([id])}
+            selectedTerminalId={selectedNodeIds[0] ?? null}
+            terminals={hermesSidebarTerminals}
+            workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
+          />
+        ) : (
+          <FileExplorer
+            entries={fileEntries}
+            loading={isLoadingFiles}
+            onCopyPath={handleCopyWorkspacePath}
+            onCreatePath={handleCreateWorkspacePath}
+            onDeletePath={handleDeleteWorkspacePath}
+            onDuplicatePath={handleDuplicateWorkspacePath}
+            onOpenFile={handleOpenFileFromExplorer}
+            onRefresh={() => void refreshFileTree()}
+            onRenamePath={handleRenameWorkspacePath}
+            onRevealPath={handleRevealWorkspacePath}
+            remote={activeWorkspace?.kind === 'ssh'}
+            workspaceName={activeWorkspace ? getWorkspaceName(activeWorkspace.path) : null}
+          />
+        )}
 
         <main className="workspace">
           <div
@@ -1997,6 +2060,7 @@ function App() {
                     <LazyTerminalNode
                       canvasRect={nodeCanvasStyle}
                       node={node}
+                      hermesSummary={isHermesWorkspace ? createHermesTerminalSummary(node, workspacePath ?? undefined) ?? undefined : undefined}
                       onClose={() => void removeTerminalSelection(node.id)}
                       onContextMenu={selectedNodeIdSet.has(node.id) && selectedDuplicableNodeCount > 1 ? handleSelectedTerminalContextMenu : undefined}
                       onMoveStart={(event) => beginNodeMove(node.id, event)}
@@ -2047,7 +2111,7 @@ function App() {
                   role="menuitem"
                   type="button"
                 >
-                  {isCreatingTerminal ? 'Creating terminal...' : 'New terminal'}
+                  {isCreatingTerminal ? 'Creating terminal...' : isHermesWorkspace ? 'New agent' : 'New terminal'}
                 </button>
                 <button
                   disabled={selectedDuplicableNodeCount === 0}
@@ -2055,7 +2119,7 @@ function App() {
                   role="menuitem"
                   type="button"
                 >
-                  Duplicate selected{selectedDuplicableNodeCount > 0 ? ` (${selectedDuplicableNodeCount})` : ''}
+                  {isHermesWorkspace ? 'Fork selected' : 'Duplicate selected'}{selectedDuplicableNodeCount > 0 ? ` (${selectedDuplicableNodeCount})` : ''}
                 </button>
                 <button
                   disabled={isBootstrapping || isKillingTerminals || terminalNodeCount === 0}
@@ -2069,14 +2133,14 @@ function App() {
             )}
             {!nodes.length && !isBootstrapping && (
               <div className="empty-state">
-                <p className="empty-state__title">EMPTY CANVAS</p>
-                <p className="empty-state__body">Add or switch workspaces, then spawn shells at the canvas center. Use the mouse wheel on empty canvas space to toggle between normal and overview zoom.</p>
+                <p className="empty-state__title">{isHermesWorkspace ? 'MISSION CONTROL READY' : 'EMPTY CANVAS'}</p>
+                <p className="empty-state__body">{isHermesWorkspace ? 'Enable AGENT OS, then spawn project-aware Hermes agents that stay grouped by repo, role, and status while you work.' : 'Add or switch workspaces, then spawn shells at the canvas center. Use the mouse wheel on empty canvas space to toggle between normal and overview zoom.'}</p>
                 <div className="empty-state__actions">
                   <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
                     ADD WORKSPACE
                   </button>
                   <button className="command-button" onClick={() => void handleCreateTerminal()} type="button">
-                    SPAWN SHELL
+                    {isHermesWorkspace ? 'SPAWN AGENT' : 'SPAWN SHELL'}
                   </button>
                 </div>
               </div>
@@ -2087,7 +2151,9 @@ function App() {
 
       <footer className="statusbar">
         <span>SYSTEM_STATUS: {isBootstrapping ? 'BOOTSTRAPPING' : 'NOMINAL'}</span>
+        <span>MODE: {isHermesWorkspace ? 'AGENT_OS' : 'STANDARD'}</span>
         <span>NODES: {nodes.length}</span>
+        <span>AGENTS: {hermesTerminalNodes.length}</span>
         <span>DIRTY_FILES: {dirtyEditorPathCount}</span>
         <span>AUTOSAVE: {autoSave ? 'ON' : 'OFF'}</span>
         <span>WORKSPACES: {workspaces.length}</span>

@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { TerminalNode } from '../../shared/types'
 import {
+  createHermesSidebarTerminalSummary,
+  createHermesTerminalSummary,
   getHermesProjectLabel,
+  getHermesRoleLabel,
+  getHermesStatusLabel,
   groupHermesTerminalsByProject,
   isHermesTerminal,
 } from './hermesWorkspace'
@@ -89,6 +93,85 @@ describe('Hermes workspace helpers', () => {
     }
 
     expect(getHermesProjectLabel(node, '/home/chris/t-can')).toBe('t-can')
+  })
+
+  it('maps Hermes roles and statuses to presentation labels', () => {
+    expect(getHermesRoleLabel('builder')).toBe('Builder')
+    expect(getHermesStatusLabel('running')).toBe('Running')
+  })
+
+  it('creates a terminal summary for Hermes panes', () => {
+    const node: TerminalNode = {
+      id: 'node-1',
+      type: 'terminal',
+      title: 'Builder',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      cwd: '/home/chris/alpha',
+      hermes: {
+        project: 'alpha',
+        role: 'builder',
+        status: 'running',
+        objective: 'Ship sidebar',
+        branch: 'feat/sidebar',
+        worktreePath: '/tmp/alpha-worktree',
+      },
+    }
+
+    expect(createHermesTerminalSummary(node, '/home/chris')).toEqual({
+      projectLabel: 'alpha',
+      role: 'Builder',
+      status: 'Running',
+      objective: 'Ship sidebar',
+      lastAction: undefined,
+      branch: 'feat/sidebar',
+      worktree: '/tmp/alpha-worktree',
+      cwd: '/home/chris/alpha',
+    })
+  })
+
+  it('creates a sidebar summary for Hermes panes', () => {
+    const node: TerminalNode = {
+      id: 'node-1',
+      type: 'terminal',
+      title: 'Reviewer',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+      cwd: '/home/chris/alpha',
+      hermes: {
+        project: 'alpha',
+        role: 'reviewer',
+        status: 'waiting',
+      },
+    }
+
+    expect(createHermesSidebarTerminalSummary(node, '/home/chris')).toEqual({
+      id: 'node-1',
+      title: 'Reviewer',
+      project: 'alpha',
+      role: 'reviewer',
+      status: 'waiting',
+      cwd: '/home/chris/alpha',
+    })
+  })
+
+  it('returns null summaries for non-Hermes terminals', () => {
+    const node: TerminalNode = {
+      id: 'node-1',
+      type: 'terminal',
+      title: 'Shell',
+      x: 0,
+      y: 0,
+      width: 300,
+      height: 200,
+    }
+
+    expect(createHermesTerminalSummary(node, '/home/chris')).toBeNull()
+    expect(createHermesSidebarTerminalSummary(node, '/home/chris')).toBeNull()
   })
 
   it('groups Hermes terminals by project label and excludes non-Hermes terminals', () => {
