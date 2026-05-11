@@ -35,6 +35,11 @@ interface CanvasContextMenuState {
   y: number
 }
 
+interface CloseWorkspaceConfirmationState {
+  workspaceId: string
+  message: string
+}
+
 const DUPLICATE_NODE_OFFSET = 45
 
 interface GitPanelState {
@@ -238,6 +243,7 @@ function App() {
   const [isBootstrapping, setIsBootstrapping] = useState(true)
   const [isOpeningWorkspace, setIsOpeningWorkspace] = useState(false)
   const [closingWorkspaceId, setClosingWorkspaceId] = useState<string | null>(null)
+  const [closeWorkspaceConfirmation, setCloseWorkspaceConfirmation] = useState<CloseWorkspaceConfirmationState | null>(null)
   const [isCreatingTerminal, setIsCreatingTerminal] = useState(false)
   const [isKillingTerminals, setIsKillingTerminals] = useState(false)
   const [isLoadingFiles, setIsLoadingFiles] = useState(false)
@@ -842,39 +848,67 @@ function App() {
     }
   }
 
-  async function handleCloseWorkspace(workspaceId: string) {
+  function createCloseWorkspaceConfirmation(workspaceId: string): CloseWorkspaceConfirmationState | null {
+    const workspace = workspaces.find((entry) => entry.id === workspaceId)
+    if (!workspace) {
+      return null
+    }
+
+    const workspaceName = getWorkspaceName(workspace.path)
+    const terminalCount = workspaceId === activeWorkspaceId
+      ? terminalNodeCount
+      : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
+
+    return {
+      workspaceId,
+      message: getCloseWorkspaceConfirmationMessage({
+        workspaceName,
+        terminalCount,
+        dirtyEditorPathCount: workspaceId === activeWorkspaceId ? dirtyEditorPathCount : 0,
+      }),
+    }
+  }
+
+  function requestCloseWorkspace(workspaceId: string) {
+    if (closingWorkspaceIdsRef.current.has(workspaceId)) {
+      return
+    }
+
+    const confirmation = createCloseWorkspaceConfirmation(workspaceId)
+    if (confirmation) {
+      setCloseWorkspaceConfirmation(confirmation)
+    }
+  }
+
+  function cancelCloseWorkspaceConfirmation() {
+    if (closeWorkspaceConfirmation && closingWorkspaceIdsRef.current.has(closeWorkspaceConfirmation.workspaceId)) {
+      return
+    }
+
+    setCloseWorkspaceConfirmation(null)
+  }
+
+  async function closeWorkspace(workspaceId: string) {
     if (closingWorkspaceIdsRef.current.has(workspaceId)) {
       return
     }
 
     const workspace = workspaces.find((entry) => entry.id === workspaceId)
     if (!workspace) {
+      setCloseWorkspaceConfirmation((current) => (current?.workspaceId === workspaceId ? null : current))
       return
     }
 
     closingWorkspaceIdsRef.current.add(workspaceId)
-
+    setClosingWorkspaceId(workspaceId)
     try {
-      const terminalCount = workspaceId === activeWorkspaceId
-        ? terminalNodeCount
-        : workspace.layout.nodes.filter((node) => node.type === 'terminal').length
-      const message = getCloseWorkspaceConfirmationMessage({
-        workspaceName: getWorkspaceName(workspace.path),
-        terminalCount,
-        dirtyEditorPathCount: workspaceId === activeWorkspaceId ? dirtyEditorPathCount : 0,
-      })
-
-      if (!window.confirm(message)) {
-        return
-      }
-
-      setClosingWorkspaceId(workspaceId)
       if (workspaceId === activeWorkspaceId) {
         await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
       }
       const nextState = await getApi().closeWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
+      setCloseWorkspaceConfirmation((current) => (current?.workspaceId === workspaceId ? null : current))
       await restoreWorkspaceLayout(getActiveWorkspace(nextState))
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -883,6 +917,15 @@ function App() {
       closingWorkspaceIdsRef.current.delete(workspaceId)
       setClosingWorkspaceId(null)
     }
+  }
+
+  async function handleCloseWorkspaceConfirmationSubmit(event: ReactFormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!closeWorkspaceConfirmation) {
+      return
+    }
+
+    await closeWorkspace(closeWorkspaceConfirmation.workspaceId)
   }
 
   const handleSshPasswordCaptured = useCallback((target: string, password: string) => {
@@ -1728,6 +1771,51 @@ function App() {
 
   return (
     <div className="app-shell">
+      {closeWorkspaceConfirmation && (
+        <div className="app-modal" role="presentation" onMouseDown={cancelCloseWorkspaceConfirmation}>
+          <form
+            aria-labelledby="close-workspace-title"
+            aria-modal="true"
+            className="app-modal__panel app-modal__panel--confirm"
+            onMouseDown={(event) => event.stopPropagation()}
+            onSubmit={(event) => void handleCloseWorkspaceConfirmationSubmit(event)}
+            role="dialog"
+          >
+            <header className="app-modal__header">
+              <strong id="close-workspace-title">CLOSE WORKSPACE</strong>
+              <button
+                className="icon-button"
+                disabled={closingWorkspaceId === closeWorkspaceConfirmation.workspaceId}
+                onClick={cancelCloseWorkspaceConfirmation}
+                type="button"
+              >
+                x
+              </button>
+            </header>
+            <div className="app-modal__body">
+              <p>{closeWorkspaceConfirmation.message}</p>
+            </div>
+            <footer className="app-modal__actions">
+              <button
+                className="command-button"
+                disabled={closingWorkspaceId === closeWorkspaceConfirmation.workspaceId}
+                onClick={cancelCloseWorkspaceConfirmation}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                autoFocus
+                className="command-button command-button--danger"
+                disabled={closingWorkspaceId === closeWorkspaceConfirmation.workspaceId}
+                type="submit"
+              >
+                {closingWorkspaceId === closeWorkspaceConfirmation.workspaceId ? 'CLOSING...' : 'Close workspace'}
+              </button>
+            </footer>
+          </form>
+        </div>
+      )}
       {isTerminalManagerOpen && (
         <div className="app-modal" role="presentation" onMouseDown={() => setIsTerminalManagerOpen(false)}>
           <section className="app-modal__panel app-modal__panel--wide" aria-label="Terminal manager" onMouseDown={(event) => event.stopPropagation()}>
@@ -1854,7 +1942,7 @@ function App() {
                   disabled={closingWorkspaceId === workspace.id}
                   onClick={(event) => {
                     event.stopPropagation()
-                    void handleCloseWorkspace(workspace.id)
+                    requestCloseWorkspace(workspace.id)
                   }}
                   title="Close workspace"
                   type="button"

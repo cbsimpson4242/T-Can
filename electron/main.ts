@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, screen, shell, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, shell, type OpenDialogOptions } from 'electron'
 import { getPreloadPath, getRendererUrl, getRuntimeRoot, resolvePreferredCwd } from './runtime'
 import { DEFAULT_LAYOUT, JsonStore } from './services/jsonStore'
 import { TerminalDaemonClient } from './services/terminalDaemonClient'
@@ -29,8 +29,6 @@ import {
 import type { GitBlameLine, GitBranchSummary, GitCommitSummary, GitDiffLine, GitFileDiff, GitStatusEntry, PersistedAppState, PersistedWorkspace, TerminalSessionInfo, WorkspaceFileEntry, WorkspaceFileMutationResult, WorkspaceFileReadResult, WorkspaceTaskScript } from '../shared/types'
 
 let mainWindow: BrowserWindow | null = null
-let hoverFocusInterval: NodeJS.Timeout | null = null
-let nativeDialogDepth = 0
 let store: JsonStore
 let persistedState: PersistedAppState
 let terminalDaemon: TerminalDaemonClient
@@ -38,45 +36,11 @@ const workspaceWatchers = new Map<string, ReturnType<typeof fs.watch>>()
 const workspaceWatchDebounceTimers = new Map<string, NodeJS.Timeout>()
 const workspaceWatchPendingTaskRefresh = new Set<string>()
 
-function isPointInsideBounds(point: Electron.Point, bounds: Electron.Rectangle): boolean {
-  return (
-    point.x >= bounds.x &&
-    point.x < bounds.x + bounds.width &&
-    point.y >= bounds.y &&
-    point.y < bounds.y + bounds.height
-  )
-}
-
-function startAutoFocusOnHover(window: BrowserWindow): void {
-  if (hoverFocusInterval) {
-    clearInterval(hoverFocusInterval)
-  }
-
-  hoverFocusInterval = setInterval(() => {
-    if (nativeDialogDepth > 0 || window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFocused()) {
-      return
-    }
-
-    const cursorPoint = screen.getCursorScreenPoint()
-    if (isPointInsideBounds(cursorPoint, window.getBounds())) {
-      window.focus()
-    }
-  }, 100)
-
-  window.on('closed', () => {
-    if (hoverFocusInterval) {
-      clearInterval(hoverFocusInterval)
-      hoverFocusInterval = null
-    }
-  })
-}
-
 async function showWorkspaceOpenDialog(dialogOptions: OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
   const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
   const shouldDisableParent = process.platform === 'win32' && parentWindow !== null
   const wasParentEnabled = parentWindow?.isEnabled() ?? true
 
-  nativeDialogDepth += 1
   try {
     if (shouldDisableParent) {
       parentWindow.setEnabled(false)
@@ -90,8 +54,6 @@ async function showWorkspaceOpenDialog(dialogOptions: OpenDialogOptions): Promis
       parentWindow.setEnabled(wasParentEnabled)
       parentWindow.focus()
     }
-
-    nativeDialogDepth = Math.max(0, nativeDialogDepth - 1)
   }
 }
 
@@ -115,7 +77,6 @@ function createMainWindow(): BrowserWindow {
     },
   })
 
-  startAutoFocusOnHover(window)
   void window.loadURL(rendererUrl)
   return window
 }

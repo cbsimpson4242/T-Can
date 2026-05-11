@@ -1004,6 +1004,10 @@ button.topbar__tab:hover:not(:disabled),
   width: min(1120px, calc(100vw - 2rem));
 }
 
+.app-modal__panel--confirm {
+  width: min(460px, calc(100vw - 2rem));
+}
+
 .ssh-dialog__header,
 .ssh-dialog__actions,
 .app-modal__header {
@@ -1012,6 +1016,25 @@ button.topbar__tab:hover:not(:disabled),
   justify-content: space-between;
   padding: 0.8rem 1rem;
   border-bottom: 1px solid rgba(116, 139, 135, 0.16);
+}
+
+.app-modal__body {
+  padding: 1rem;
+}
+
+.app-modal__body p {
+  margin: 0;
+  color: rgba(237, 242, 239, 0.82);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.app-modal__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6rem;
+  padding: 0.8rem 1rem 1rem;
+  border-top: 1px solid rgba(116, 139, 135, 0.16);
 }
 
 .ssh-dialog__fields {

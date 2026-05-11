@@ -109,7 +109,7 @@ describe('workspace closing', () => {
     Reflect.deleteProperty(window as unknown as Record<string, unknown>, 'tcan')
   })
 
-  it('uses a single confirmation when the active workspace has unsaved files', async () => {
+  it('uses an in-app confirmation when the active workspace has unsaved files', async () => {
     const alpha = createWorkspace({
       id: 'alpha',
       path: '/tmp/alpha',
@@ -123,16 +123,20 @@ describe('workspace closing', () => {
     const nextState: PersistedAppState = { activeWorkspaceId: beta.id, workspaces: [beta] }
     const api = createApi(state, nextState)
     ;(window as Window & { tcan?: TCanApi }).tcan = api
-    window.confirm = vi.fn().mockReturnValue(true)
+    window.confirm = vi.fn()
 
     render(<App />)
 
     const closeButton = await screen.findByRole('button', { name: 'Close alpha workspace' })
     await userEvent.click(closeButton)
 
+    expect(await screen.findByRole('dialog', { name: 'CLOSE WORKSPACE' })).toBeTruthy()
+    expect(screen.getByText('Close workspace "alpha" with 1 unsaved file? Unsaved edits will be discarded.')).toBeTruthy()
+    expect(window.confirm).not.toHaveBeenCalled()
+
+    await userEvent.click(screen.getByRole('button', { name: 'Close workspace' }))
+
     await waitFor(() => expect(api.closeWorkspace).toHaveBeenCalledWith(alpha.id))
-    expect(window.confirm).toHaveBeenCalledTimes(1)
-    expect(window.confirm).toHaveBeenCalledWith('Close workspace "alpha" with 1 unsaved file? Unsaved edits will be discarded.')
   })
 
   it('persists the active workspace layout before closing it', async () => {
@@ -142,7 +146,7 @@ describe('workspace closing', () => {
     const nextState: PersistedAppState = { activeWorkspaceId: beta.id, workspaces: [beta] }
     const api = createApi(state, nextState)
     ;(window as Window & { tcan?: TCanApi }).tcan = api
-    window.confirm = vi.fn().mockReturnValue(true)
+    window.confirm = vi.fn()
 
     render(<App />)
 
@@ -153,6 +157,7 @@ describe('workspace closing', () => {
 
     const closeButton = screen.getByRole('button', { name: 'Close alpha workspace' })
     await userEvent.click(closeButton)
+    await userEvent.click(await screen.findByRole('button', { name: 'Close workspace' }))
 
     await waitFor(() => expect(api.closeWorkspace).toHaveBeenCalledWith(alpha.id))
     const saveOrders = vi.mocked(api.saveLayout).mock.invocationCallOrder
