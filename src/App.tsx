@@ -224,6 +224,25 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
   return [...nextIds]
 }
 
+function runPointerButtonCommand(event: ReactPointerEvent<HTMLButtonElement>, command: () => void) {
+  if (event.button !== 0) {
+    return
+  }
+
+  event.preventDefault()
+  event.stopPropagation()
+  command()
+}
+
+function runKeyboardButtonCommand(event: ReactMouseEvent<HTMLButtonElement>, command: () => void) {
+  if (event.detail !== 0) {
+    return
+  }
+
+  event.stopPropagation()
+  command()
+}
+
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const isRestoringWorkspaceRef = useRef(false)
@@ -1808,7 +1827,9 @@ function App() {
                 autoFocus
                 className="command-button command-button--danger"
                 disabled={closingWorkspaceId === closeWorkspaceConfirmation.workspaceId}
-                type="submit"
+                onClick={(event) => runKeyboardButtonCommand(event, () => void closeWorkspace(closeWorkspaceConfirmation.workspaceId))}
+                onPointerDown={(event) => runPointerButtonCommand(event, () => void closeWorkspace(closeWorkspaceConfirmation.workspaceId))}
+                type="button"
               >
                 {closingWorkspaceId === closeWorkspaceConfirmation.workspaceId ? 'CLOSING...' : 'Close workspace'}
               </button>
@@ -1940,10 +1961,8 @@ function App() {
                   aria-label={`Close ${getWorkspaceName(workspace.path)} workspace`}
                   className="topbar__workspace-close"
                   disabled={closingWorkspaceId === workspace.id}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    requestCloseWorkspace(workspace.id)
-                  }}
+                  onClick={(event) => runKeyboardButtonCommand(event, () => requestCloseWorkspace(workspace.id))}
+                  onPointerDown={(event) => runPointerButtonCommand(event, () => requestCloseWorkspace(workspace.id))}
                   title="Close workspace"
                   type="button"
                 >
@@ -1969,7 +1988,13 @@ function App() {
           <button className="command-button" disabled={!activeWorkspaceId || activeWorkspace?.kind === 'ssh'} onClick={() => void openGitPanel()} type="button">
             GIT
           </button>
-          <button className="command-button" disabled={isOpeningWorkspace} onClick={() => void handleOpenWorkspace()} type="button">
+          <button
+            className="command-button"
+            disabled={isOpeningWorkspace}
+            onClick={(event) => runKeyboardButtonCommand(event, () => void handleOpenWorkspace())}
+            onPointerDown={(event) => runPointerButtonCommand(event, () => void handleOpenWorkspace())}
+            type="button"
+          >
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
           </button>
           <button className="command-button" disabled={isOpeningWorkspace} onClick={openSshDialog} type="button">
@@ -2187,7 +2212,8 @@ function App() {
               >
                 <button
                   disabled={isOpeningWorkspace}
-                  onClick={() => runCanvasContextCommand(() => void handleOpenWorkspace())}
+                  onClick={(event) => runKeyboardButtonCommand(event, () => runCanvasContextCommand(() => void handleOpenWorkspace()))}
+                  onPointerDown={(event) => runPointerButtonCommand(event, () => runCanvasContextCommand(() => void handleOpenWorkspace()))}
                   role="menuitem"
                   type="button"
                 >
@@ -2224,7 +2250,12 @@ function App() {
                 <p className="empty-state__title">{isHermesWorkspace ? 'MISSION CONTROL READY' : 'EMPTY CANVAS'}</p>
                 <p className="empty-state__body">{isHermesWorkspace ? 'Enable AGENT OS, then spawn project-aware Hermes agents that stay grouped by repo, role, and status while you work.' : 'Add or switch workspaces, then spawn shells at the canvas center. Use the mouse wheel on empty canvas space to toggle between normal and overview zoom.'}</p>
                 <div className="empty-state__actions">
-                  <button className="command-button" onClick={() => void handleOpenWorkspace()} type="button">
+                  <button
+                    className="command-button"
+                    onClick={(event) => runKeyboardButtonCommand(event, () => void handleOpenWorkspace())}
+                    onPointerDown={(event) => runPointerButtonCommand(event, () => void handleOpenWorkspace())}
+                    type="button"
+                  >
                     ADD WORKSPACE
                   </button>
                   <button className="command-button" onClick={() => void handleCreateTerminal()} type="button">
