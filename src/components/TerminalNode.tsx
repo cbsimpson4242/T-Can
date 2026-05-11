@@ -34,6 +34,17 @@ interface ProjectedNodeRect {
   height: number
 }
 
+interface TerminalHermesSummary {
+  projectLabel: string
+  role: string
+  status: string
+  objective?: string
+  lastAction?: string
+  branch?: string
+  worktree?: string
+  cwd?: string
+}
+
 interface TerminalNodeProps {
   node: TerminalNodeModel
   canvasRect: ProjectedNodeRect
@@ -43,6 +54,7 @@ interface TerminalNodeProps {
   workspacePath: string | null
   scale: number
   selected: boolean
+  hermesSummary?: TerminalHermesSummary
   onSelect(event: ReactPointerEvent<HTMLElement>): void
   onContextMenu?(event: ReactMouseEvent<HTMLElement>): void
   onMoveStart(event: ReactPointerEvent<HTMLElement>): void
@@ -110,7 +122,7 @@ function containsKnownAiAgentOutput(data: string): boolean {
 }
 
 export function TerminalNode(props: TerminalNodeProps) {
-  const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, onSelect, onContextMenu, onMoveStart, onResizeStart, onClose, onSshPasswordCaptured } = props
+  const { node, canvasRect, sessionId, shell, sshPassword, workspacePath, scale, selected, hermesSummary, onSelect, onContextMenu, onMoveStart, onResizeStart, onClose, onSshPasswordCaptured } = props
   const hostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -134,6 +146,14 @@ export function TerminalNode(props: TerminalNodeProps) {
 
   const sessionLabel = useMemo(() => (node.sshTarget ? `SSH ${node.sshTarget}` : workspacePath ?? 'Home shell'), [node.sshTarget, workspacePath])
   const shellLabel = useMemo(() => getShellLabel(shell), [shell])
+  const hermesSummaryPrimaryText = hermesSummary?.objective ?? hermesSummary?.lastAction ?? null
+  const hermesSummarySecondaryText = useMemo(() => {
+    if (!hermesSummary) {
+      return null
+    }
+
+    return [hermesSummary.branch, hermesSummary.worktree, hermesSummary.cwd].filter(Boolean).join(' • ')
+  }, [hermesSummary])
 
   useEffect(() => {
     currentSshPasswordRef.current = sshPassword
@@ -664,6 +684,17 @@ export function TerminalNode(props: TerminalNodeProps) {
         {!sessionId && <div className="terminal-node__overlay">Starting terminal...</div>}
         {sessionId && exitCode !== null && (
           <div className="terminal-node__overlay">Terminal exited with code {exitCode}</div>
+        )}
+        {hermesSummary && (
+          <div className="terminal-node__summary" title={hermesSummarySecondaryText ?? undefined}>
+            <div className="terminal-node__summary-topline">
+              <span className="terminal-node__summary-project">{hermesSummary.projectLabel}</span>
+              <span className="terminal-node__summary-chip terminal-node__summary-chip--role">{hermesSummary.role}</span>
+              <span className="terminal-node__summary-chip terminal-node__summary-chip--status">{hermesSummary.status}</span>
+            </div>
+            {hermesSummaryPrimaryText && <div className="terminal-node__summary-primary">{hermesSummaryPrimaryText}</div>}
+            {hermesSummarySecondaryText && <div className="terminal-node__summary-secondary">{hermesSummarySecondaryText}</div>}
+          </div>
         )}
         {isAiAgentSession && lastAgentMessage && (
           <div className="terminal-node__agent-message" title={lastAgentMessage}>

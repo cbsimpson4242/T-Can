@@ -30,6 +30,7 @@ import type { GitBlameLine, GitBranchSummary, GitCommitSummary, GitDiffLine, Git
 
 let mainWindow: BrowserWindow | null = null
 let hoverFocusInterval: NodeJS.Timeout | null = null
+let nativeDialogDepth = 0
 let store: JsonStore
 let persistedState: PersistedAppState
 let terminalDaemon: TerminalDaemonClient
@@ -52,7 +53,7 @@ function startAutoFocusOnHover(window: BrowserWindow): void {
   }
 
   hoverFocusInterval = setInterval(() => {
-    if (window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFocused()) {
+    if (nativeDialogDepth > 0 || window.isDestroyed() || !window.isVisible() || window.isMinimized() || window.isFocused()) {
       return
     }
 
@@ -68,6 +69,17 @@ function startAutoFocusOnHover(window: BrowserWindow): void {
       hoverFocusInterval = null
     }
   })
+}
+
+async function showWorkspaceOpenDialog(dialogOptions: OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
+  nativeDialogDepth += 1
+  try {
+    return mainWindow
+      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+      : await dialog.showOpenDialog(dialogOptions)
+  } finally {
+    nativeDialogDepth = Math.max(0, nativeDialogDepth - 1)
+  }
 }
 
 function createMainWindow(): BrowserWindow {
@@ -612,9 +624,7 @@ function registerIpcHandlers(): void {
       buttonLabel: 'Open workspace',
     }
 
-    const result = mainWindow
-      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
-      : await dialog.showOpenDialog(dialogOptions)
+    const result = await showWorkspaceOpenDialog(dialogOptions)
 
     if (result.canceled || result.filePaths.length === 0) {
       return persistedState
@@ -885,7 +895,7 @@ function registerIpcHandlers(): void {
   })
 
   ipcMain.handle(IPC_CHANNELS.saveLayout, async (_event, candidate) => {
-    const { workspaceId, layout } = saveLayoutRequestSchema.parse(candidate)
+    const { workspaceId, layout, mode } = saveLayoutRequestSchema.parse(candidate)
     if (!persistedState.workspaces.some((workspace) => workspace.id === workspaceId)) {
       return persistedState
     }
@@ -893,7 +903,7 @@ function registerIpcHandlers(): void {
     return persistLayout({
       ...persistedState,
       workspaces: persistedState.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? { ...workspace, layout } : workspace,
+        workspace.id === workspaceId ? { ...workspace, layout, ...(mode ? { mode } : {}) } : workspace,
       ),
     })
   })
