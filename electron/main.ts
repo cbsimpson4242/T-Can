@@ -72,12 +72,25 @@ function startAutoFocusOnHover(window: BrowserWindow): void {
 }
 
 async function showWorkspaceOpenDialog(dialogOptions: OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
+  const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+  const shouldDisableParent = process.platform === 'win32' && parentWindow !== null
+  const wasParentEnabled = parentWindow?.isEnabled() ?? true
+
   nativeDialogDepth += 1
   try {
-    return mainWindow
-      ? await dialog.showOpenDialog(mainWindow, dialogOptions)
+    if (shouldDisableParent) {
+      parentWindow.setEnabled(false)
+    }
+
+    return parentWindow
+      ? await dialog.showOpenDialog(parentWindow, dialogOptions)
       : await dialog.showOpenDialog(dialogOptions)
   } finally {
+    if (shouldDisableParent && parentWindow && !parentWindow.isDestroyed()) {
+      parentWindow.setEnabled(wasParentEnabled)
+      parentWindow.focus()
+    }
+
     nativeDialogDepth = Math.max(0, nativeDialogDepth - 1)
   }
 }
@@ -620,7 +633,7 @@ function registerIpcHandlers(): void {
     const dialogOptions: OpenDialogOptions = {
       title: 'Open workspace',
       defaultPath: activeWorkspace?.path ?? app.getPath('home'),
-      properties: ['openDirectory', 'createDirectory'],
+      properties: process.platform === 'darwin' ? ['openDirectory', 'createDirectory'] : ['openDirectory'],
       buttonLabel: 'Open workspace',
     }
 
