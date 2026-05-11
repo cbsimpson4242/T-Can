@@ -35,26 +35,18 @@ let terminalDaemon: TerminalDaemonClient
 const workspaceWatchers = new Map<string, ReturnType<typeof fs.watch>>()
 const workspaceWatchDebounceTimers = new Map<string, NodeJS.Timeout>()
 const workspaceWatchPendingTaskRefresh = new Set<string>()
+let workspaceWatcherRefreshTimer: NodeJS.Timeout | null = null
 
 async function showWorkspaceOpenDialog(dialogOptions: OpenDialogOptions): Promise<Electron.OpenDialogReturnValue> {
-  const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
-  const shouldDisableParent = process.platform === 'win32' && parentWindow !== null
-  const wasParentEnabled = parentWindow?.isEnabled() ?? true
-
-  try {
-    if (shouldDisableParent) {
-      parentWindow.setEnabled(false)
-    }
-
-    return parentWindow
-      ? await dialog.showOpenDialog(parentWindow, dialogOptions)
-      : await dialog.showOpenDialog(dialogOptions)
-  } finally {
-    if (shouldDisableParent && parentWindow && !parentWindow.isDestroyed()) {
-      parentWindow.setEnabled(wasParentEnabled)
-      parentWindow.focus()
-    }
+  if (process.platform === 'win32') {
+    return dialog.showOpenDialog(dialogOptions)
   }
+
+  const parentWindow = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+
+  return parentWindow
+    ? dialog.showOpenDialog(parentWindow, dialogOptions)
+    : dialog.showOpenDialog(dialogOptions)
 }
 
 function createMainWindow(): BrowserWindow {
@@ -558,6 +550,11 @@ function refreshWorkspaceWatchers(): void {
 }
 
 function closeWorkspaceWatchers(): void {
+  if (workspaceWatcherRefreshTimer) {
+    clearTimeout(workspaceWatcherRefreshTimer)
+    workspaceWatcherRefreshTimer = null
+  }
+
   for (const watcher of workspaceWatchers.values()) {
     watcher.close()
   }
@@ -569,7 +566,18 @@ function closeWorkspaceWatchers(): void {
   workspaceWatchPendingTaskRefresh.clear()
 }
 
-function persistLayout(nextState: PersistedAppState): PersistedAppState {
+function scheduleWorkspaceWatcherRefresh(): void {
+  if (workspaceWatcherRefreshTimer) {
+    clearTimeout(workspaceWatcherRefreshTimer)
+  }
+
+  workspaceWatcherRefreshTimer = setTimeout(() => {
+    workspaceWatcherRefreshTimer = null
+    refreshWorkspaceWatchers()
+  }, 0)
+}
+
+function persistLayout(nextState: PersistedAppState, options: { refreshWatchers?: boolean } = {}): PersistedAppState {
   persistedState = {
     activeWorkspaceId: nextState.activeWorkspaceId,
     workspaces: nextState.workspaces,
@@ -582,7 +590,10 @@ function persistLayout(nextState: PersistedAppState): PersistedAppState {
     process.stderr.write(`[T-CAN] Failed to persist app state: ${message}\n`)
   }
 
-  refreshWorkspaceWatchers()
+  if (options.refreshWatchers) {
+    scheduleWorkspaceWatcherRefresh()
+  }
+
   return persistedState
 }
 
@@ -621,7 +632,7 @@ function registerIpcHandlers(): void {
     return persistLayout({
       activeWorkspaceId: workspaceId,
       workspaces,
-    })
+    }, { refreshWatchers: true })
   })
 
   ipcMain.handle(IPC_CHANNELS.openSshWorkspace, async (_event, candidate) => {
@@ -648,7 +659,7 @@ function registerIpcHandlers(): void {
     return persistLayout({
       activeWorkspaceId: workspaceId,
       workspaces,
-    })
+    }, { refreshWatchers: true })
   })
 
   ipcMain.handle(IPC_CHANNELS.switchWorkspace, async (_event, candidate) => {
@@ -701,7 +712,7 @@ function registerIpcHandlers(): void {
     return persistLayout({
       activeWorkspaceId,
       workspaces,
-    })
+    }, { refreshWatchers: true })
   })
 
   ipcMain.handle(IPC_CHANNELS.listWorkspaceFiles, async (_event, candidate) => {

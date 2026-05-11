@@ -224,25 +224,6 @@ function toggleSelection(currentIds: string[], nodeIds: string[]): string[] {
   return [...nextIds]
 }
 
-function runPointerButtonCommand(event: ReactPointerEvent<HTMLButtonElement>, command: () => void) {
-  if (event.button !== 0) {
-    return
-  }
-
-  event.preventDefault()
-  event.stopPropagation()
-  command()
-}
-
-function runKeyboardButtonCommand(event: ReactMouseEvent<HTMLButtonElement>, command: () => void) {
-  if (event.detail !== 0) {
-    return
-  }
-
-  event.stopPropagation()
-  command()
-}
-
 function App() {
   const canvasRef = useRef<HTMLDivElement | null>(null)
   const isRestoringWorkspaceRef = useRef(false)
@@ -767,16 +748,26 @@ function App() {
     return dirtyEditorPathCount === 0 || window.confirm(`${action} with ${dirtyEditorPathCount} unsaved file${dirtyEditorPathCount === 1 ? '' : 's'}? Unsaved edits will be discarded.`)
   }
 
+  function saveActiveWorkspaceLayoutSoon() {
+    if (!activeWorkspaceId) {
+      return
+    }
+
+    void getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
+  }
+
   async function handleOpenWorkspace() {
+    if (isOpeningWorkspace) {
+      return
+    }
+
     if (!confirmDiscardUnsavedChanges('Open another workspace')) {
       return
     }
 
     setIsOpeningWorkspace(true)
     try {
-      if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
-      }
+      saveActiveWorkspaceLayoutSoon()
       const nextState = await getApi().openWorkspace()
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
@@ -824,9 +815,7 @@ function App() {
 
     setIsOpeningWorkspace(true)
     try {
-      if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
-      }
+      saveActiveWorkspaceLayoutSoon()
       const nextState = await getApi().openSshWorkspace(target)
       if (password) {
         setSshPasswords((current) => ({ ...current, [target]: password }))
@@ -854,9 +843,7 @@ function App() {
     }
 
     try {
-      if (activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
-      }
+      saveActiveWorkspaceLayoutSoon()
       const nextState = await getApi().switchWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
       setActiveWorkspaceId(nextState.activeWorkspaceId)
@@ -922,7 +909,7 @@ function App() {
     setClosingWorkspaceId(workspaceId)
     try {
       if (workspaceId === activeWorkspaceId) {
-        await getApi().saveLayout(activeWorkspaceId, layout, activeWorkspace?.mode)
+        saveActiveWorkspaceLayoutSoon()
       }
       const nextState = await getApi().closeWorkspace(workspaceId)
       setWorkspaces(nextState.workspaces)
@@ -1827,9 +1814,7 @@ function App() {
                 autoFocus
                 className="command-button command-button--danger"
                 disabled={closingWorkspaceId === closeWorkspaceConfirmation.workspaceId}
-                onClick={(event) => runKeyboardButtonCommand(event, () => void closeWorkspace(closeWorkspaceConfirmation.workspaceId))}
-                onPointerDown={(event) => runPointerButtonCommand(event, () => void closeWorkspace(closeWorkspaceConfirmation.workspaceId))}
-                type="button"
+                type="submit"
               >
                 {closingWorkspaceId === closeWorkspaceConfirmation.workspaceId ? 'CLOSING...' : 'Close workspace'}
               </button>
@@ -1961,8 +1946,10 @@ function App() {
                   aria-label={`Close ${getWorkspaceName(workspace.path)} workspace`}
                   className="topbar__workspace-close"
                   disabled={closingWorkspaceId === workspace.id}
-                  onClick={(event) => runKeyboardButtonCommand(event, () => requestCloseWorkspace(workspace.id))}
-                  onPointerDown={(event) => runPointerButtonCommand(event, () => requestCloseWorkspace(workspace.id))}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    requestCloseWorkspace(workspace.id)
+                  }}
                   title="Close workspace"
                   type="button"
                 >
@@ -1991,8 +1978,7 @@ function App() {
           <button
             className="command-button"
             disabled={isOpeningWorkspace}
-            onClick={(event) => runKeyboardButtonCommand(event, () => void handleOpenWorkspace())}
-            onPointerDown={(event) => runPointerButtonCommand(event, () => void handleOpenWorkspace())}
+            onClick={() => void handleOpenWorkspace()}
             type="button"
           >
             {isOpeningWorkspace ? 'OPENING...' : 'ADD WORKSPACE'}
@@ -2212,8 +2198,7 @@ function App() {
               >
                 <button
                   disabled={isOpeningWorkspace}
-                  onClick={(event) => runKeyboardButtonCommand(event, () => runCanvasContextCommand(() => void handleOpenWorkspace()))}
-                  onPointerDown={(event) => runPointerButtonCommand(event, () => runCanvasContextCommand(() => void handleOpenWorkspace()))}
+                  onClick={() => runCanvasContextCommand(() => void handleOpenWorkspace())}
                   role="menuitem"
                   type="button"
                 >
@@ -2252,8 +2237,7 @@ function App() {
                 <div className="empty-state__actions">
                   <button
                     className="command-button"
-                    onClick={(event) => runKeyboardButtonCommand(event, () => void handleOpenWorkspace())}
-                    onPointerDown={(event) => runPointerButtonCommand(event, () => void handleOpenWorkspace())}
+                    onClick={() => void handleOpenWorkspace()}
                     type="button"
                   >
                     ADD WORKSPACE
